@@ -15,25 +15,29 @@ import * as dotenv from 'dotenv';
 import * as path from 'path';
 import { envSchema } from './config/env.validation';
 
-// 1. Force load the correct .env file early for validation
+/**
+ * instrumentation.ts is intentionally standalone — it must initialise the
+ * OpenTelemetry SDK *before* NestJS boots, so the DI container does not exist
+ * yet. dotenv + envSchema.parse() gives us the same validated, typed values
+ * that AppConfigService would provide inside the app.
+ */
 const envFile = `.env.${process.env.NODE_ENV || 'development'}`;
 dotenv.config({ path: path.resolve(process.cwd(), envFile) });
 
-// 2. Validate using your existing Zod schema
-const parsedEnv = envSchema.parse(process.env);
+const env = envSchema.parse(process.env);
 
 export const sdk = new NodeSDK({
   resource: resourceFromAttributes({
-    [ATTR_SERVICE_NAME]: parsedEnv.OTEL_ATTR_SERVICE_NAME,
-    [ATTR_SERVICE_VERSION]: parsedEnv.OTEL_ATTR_SERVICE_VERSION,
+    [ATTR_SERVICE_NAME]: env.OTEL_ATTR_SERVICE_NAME,
+    [ATTR_SERVICE_VERSION]: env.OTEL_ATTR_SERVICE_VERSION,
   }),
 
   traceExporter: new OTLPTraceExporter({
-    url: parsedEnv.OTEL_EXPORTER_OTLP_ENDPOINT,
+    url: env.OTEL_EXPORTER_OTLP_ENDPOINT,
   }),
 
   sampler: new ParentBasedSampler({
-    root: new TraceIdRatioBasedSampler(parsedEnv.OTEL_SAMPLING_RATIO),
+    root: new TraceIdRatioBasedSampler(env.OTEL_SAMPLING_RATIO),
   }),
 
   instrumentations: [getNodeAutoInstrumentations()],

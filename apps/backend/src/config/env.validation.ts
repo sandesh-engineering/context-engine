@@ -5,6 +5,7 @@ export const envSchema = z.object({
   NODE_ENV: z
     .enum(['development', 'production', 'test', 'provision'])
     .default('development'),
+  CORS_ORIGIN: z.string().default('http://localhost:3000'),
 
   OTEL_ATTR_SERVICE_VERSION: z
     .string()
@@ -25,7 +26,9 @@ export const envSchema = z.object({
   OTEL_SAMPLING_RATIO: z.coerce.number().min(0).max(1).optional().default(1),
 });
 
-export function validateEnv(config: Record<string, unknown>) {
+export type Env = z.infer<typeof envSchema>;
+
+export function validateEnv(config: Record<string, unknown>): Env {
   const result = envSchema.safeParse(config);
 
   if (!result.success) {
