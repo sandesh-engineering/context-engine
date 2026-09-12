@@ -1,3 +1,6 @@
+import { sdk } from './instrumentation';
+sdk.start();
+
 import { NestFactory } from '@nestjs/core';
 import { AppModule, ObserveInstrument } from './app.module';
 

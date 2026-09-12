@@ -1,0 +1,6 @@
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:latest # PIN THE VERSION
+    ports:
+      - '16686:16686'
+      - '4317:4317'
