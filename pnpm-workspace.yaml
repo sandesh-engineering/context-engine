@@ -2,5 +2,8 @@ packages:
   - "apps/*"
   - "packages/*"
 allowBuilds:
-  '@parcel/watcher': false
+  "@parcel/watcher": false
+  "@sentry/cli": false
+  "@swc/core": false
+  protobufjs: false
   unrs-resolver: false
