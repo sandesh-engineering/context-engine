@@ -87,9 +87,11 @@ flowchart TD
 | Boundary | Type | Key Responsibility | Failure Strategy |
 | :--- | :--- | :--- | :--- |
 | **API → PostgreSQL** | Synchronous | Document metadata & conversation recording | Immediate HTTP error response |
-| **API → S3** | Synchronous | Raw document binary write | Rejection of upload transaction |
+| **API → S3** | Synchronous | Raw document binary write (direct upload) | Rejection of upload transaction |
+| **Client → API (`/imports`)** | Asynchronous | External URL ingestion registration | 202 Accepted + Outbox job creation |
 | **PostgreSQL → SQS (Outbox)** | Asynchronous | Reliable event dispatch | Outbox polling retry loop |
-| **SQS → Ingestion Worker** | Asynchronous | Document parsing, chunking, & vector indexing | SQS visibility timeout & retries to DLQ |
+| **SQS → Ingestion Worker** | Asynchronous | Document streaming/parsing, chunking, & vector indexing | SQS visibility timeout & retries to DLQ |
+| **Worker → External URL / S3** | Asynchronous | SSRF-validated HTTP streaming / S3-to-S3 copy | Multipart abort, backoff retry or FAILED |
 | **Worker → Model Interface** | Asynchronous | Dense embedding generation | Bounded batch retries & stage checkpoints |
 | **API → LLM Interface** | Synchronous (Stream) | Grounded chat completion streaming | Fallback error token stream |
 
@@ -98,16 +100,18 @@ flowchart TD
 ## Key Invariants
 
 1. **Relational Source of Truth**: PostgreSQL is authoritative. S3 and vector indexes augment PostgreSQL state but do not replace it.
-2. **Synchronous vs. Asynchronous Separation**: Heavy tasks (file parsing, embedding generation) must never execute synchronously within HTTP request cycles.
+2. **Synchronous vs. Asynchronous Separation**: Heavy tasks (file parsing, embedding generation, external object downloads) must never execute synchronously within HTTP request cycles.
 3. **Provider Isolation**: Application domain code must consume LLM and Embedding interfaces, never vendor-specific SDK classes directly.
+4. **Untrusted External Ingestion**: External objects acquired via URLs or presigned URLs are streamed through bounded worker buffers into S3 and remain untrusted throughout parsing and downstream processing.
 
 ---
 
 ## Related Documentation
 
-- [[ingestion]]
+- [[ingestion]] — Ingestion pipeline, external object streaming, and SSRF defense.
 - [[retrieval]]
 - [[chat]]
 - [[reliability]]
 - [[../decisions/ADR-001-postgresql-pgvector]]
+- [[../decisions/ADR-006-external-object-streaming-ingestion]]
 - [[../infrastructure/aws]]

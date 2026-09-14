@@ -21,8 +21,10 @@ This document outlines the AWS cloud infrastructure services utilized by Knowled
 
 ### 1. AWS S3 (Simple Storage Service)
 - **Role**: Durable blob storage for raw files before parsing.
-- **Access Pattern**: API server writes raw upload files using presigned URLs or SDK uploads. Workers read files during the `PARSING` stage.
-- **Bucket Lifecycle**: Bucket policies enable versioning and server-side encryption (`SSE-S3`).
+- **Access Pattern**: API server writes direct upload files via SDK. Ingestion workers stream external objects from URLs via S3 multipart upload or perform server-side `CopyObject` when direct source-bucket IAM permissions exist. Workers read raw files during the `PARSING` stage.
+- **Bucket Lifecycle & Rules**:
+  - Bucket policies enforce versioning and server-side encryption (`SSE-S3`).
+  - **Incomplete Multipart Upload Rule (`AbortIncompleteMultipartUpload`)**: Configured with a 7-day (or 24-hour in high-volume environments) abort window to automatically purge orphaned upload parts left by crashed or terminated worker tasks.
 
 ### 2. Amazon RDS PostgreSQL (with `pgvector`)
 - **Role**: Primary ACID relational database and vector search engine.
@@ -55,5 +57,7 @@ To prevent unnecessary architectural bloat, the following services are explicitl
 - [[database]]
 - [[messaging]]
 - [[../architecture/overview]]
+- [[../architecture/ingestion]] — Authoritative ingestion pipeline and external streaming storage.
 - [[../decisions/ADR-001-postgresql-pgvector]]
 - [[../decisions/ADR-002-sqs-over-kinesis]]
+- [[../decisions/ADR-006-external-object-streaming-ingestion]] — External object streaming and S3 multipart lifecycle.

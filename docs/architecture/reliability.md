@@ -11,11 +11,14 @@ This document centralizes system-wide reliability, resilience, fault-tolerance, 
 | Core Principle | Implementation Strategy | Target Failure Mode |
 | :--- | :--- | :--- |
 | **At-Least-Once Delivery** | Transactional Outbox + SQS Message Queuing | Database/Queue dual-write failures, network drops |
-| **Consumer Idempotency** | Deterministic entity IDs (`version_id` + `chunk_index`) | Duplicate SQS delivery, worker retries |
+| **Consumer Idempotency** | Deterministic entity IDs (`version_id` + `chunk_index`) & atomic state transitions | Duplicate SQS delivery, worker retries |
 | **Progress Checkpointing** | IngestionJob checkpoint updates in PostgreSQL | Worker process crashes mid-pipeline |
 | **Bounded Retries & Backoff** | Exponential backoff with random jitter | Transient model or database connection spikes |
 | **Dead-Letter Queue (DLQ)** | SQS DLQ after `maxReceiveCount` exceeded | Permanent parse failures (corrupt binary/malformed payload) |
 | **Provider Fault Isolation** | Circuit breaker & timeout wrapper on external models | Model server hangs or latency degradation |
+| **Bounded Streaming Memory** | Bounded buffer (8–16 MB) HTTP-to-S3 multipart upload | Worker OOM crashes on massive file ingestion |
+| **Orphaned Multipart Cleanup** | Worker `AbortMultipartUpload` + S3 bucket lifecycle rule | Storage cost leaks from aborted or crashed uploads |
+| **SSRF & Metadata Defense** | Pre-dial DNS resolution, IP blacklist, socket IP pinning | Internal network reconnaissance, cloud metadata theft |
 
 ---
 
@@ -53,6 +56,7 @@ Ingestion progress is persisted to PostgreSQL after every major stage completion
 ## Related Documentation
 
 - [[overview]]
-- [[ingestion]]
+- [[ingestion]] — Authoritative ingestion pipeline and external object streaming.
 - [[../infrastructure/messaging]]
 - [[../decisions/ADR-003-transactional-outbox]]
+- [[../decisions/ADR-006-external-object-streaming-ingestion]] — External object streaming resilience and multipart lifecycle.

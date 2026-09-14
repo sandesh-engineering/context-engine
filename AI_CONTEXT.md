@@ -46,6 +46,7 @@ All system requirements, architectural patterns, domain specs, infrastructure gu
 - **ADR-003**: Transactional Outbox Pattern ([docs/decisions/ADR-003-transactional-outbox.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/decisions/ADR-003-transactional-outbox.md))
 - **ADR-004**: Self-Hosted Embedding Strategy ([docs/decisions/ADR-004-self-hosted-embeddings.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/decisions/ADR-004-self-hosted-embeddings.md))
 - **ADR-005**: Local/Free LLM Abstraction Boundary ([docs/decisions/ADR-005-local-llm.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/decisions/ADR-005-local-llm.md))
+- **ADR-006**: External Object Streaming Ingestion ([docs/decisions/ADR-006-external-object-streaming-ingestion.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/decisions/ADR-006-external-object-streaming-ingestion.md))
 
 #### Development Standards
 - **Implementation Progress**: [docs/development/implementation-plan.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/development/implementation-plan.md)

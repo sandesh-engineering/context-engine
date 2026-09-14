@@ -58,7 +58,28 @@ All outbox and SQS messages adhere to a standardized JSON schema:
     "jobId": "98765432-b12c-34d5-e678-901234567890",
     "documentId": "doc-111",
     "versionId": "ver-222",
-    "s3Key": "documents/doc-111/ver-222/raw.pdf"
+    "s3Key": "tenants/ten_default/documents/doc-111/versions/ver-222/raw.bin"
+  }
+}
+```
+
+For external object ingestion jobs, the payload conveys the source access model and redacted URL reference:
+
+```json
+{
+  "eventId": "234e5678-e89b-12d3-a456-426614174001",
+  "eventType": "ingestion.external_object.import",
+  "timestamp": "2026-09-14T17:00:00Z",
+  "traceId": "trace-xyz-123",
+  "payload": {
+    "jobId": "87654321-c23d-45e6-f789-012345678901",
+    "documentId": "doc-222",
+    "versionId": "ver-333",
+    "sourceType": "external_url",
+    "sourceUrl": "https://external-bucket.s3.amazonaws.com/files/report.pdf?AWSAccessKeyId=...",
+    "destinationS3Key": "tenants/ten_default/documents/doc-222/versions/ver-333/raw.bin",
+    "maxSizeBytes": 524288000,
+    "expectedChecksumSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   }
 }
 ```
@@ -71,12 +92,14 @@ Workers receiving SQS messages must execute idempotently:
 
 - Consumers extract `eventId` and `versionId` from the payload.
 - Before executing work, the consumer inspects `IngestionJob.stage` in PostgreSQL. If the job is already `COMPLETED` or beyond the target stage, the worker logs a duplicate notice and acknowledges (deletes) the SQS message immediately.
+- For external stream jobs, workers use atomic SQL updates (`UPDATE ingestion_jobs SET stage = 'DOWNLOADING' WHERE id = :jobId AND stage = 'PENDING'`) to claim exclusive processing rights.
 
 ---
 
 ## Open Questions
 
 - What specific polling frequency and batch size (`MaxNumberOfMessages`) should be configured for the outbox relay process?
+- Should external object acquisition tasks run on a separate SQS queue from parsing/embedding tasks?
 
 ---
 
@@ -84,6 +107,7 @@ Workers receiving SQS messages must execute idempotently:
 
 - [[aws]]
 - [[database]]
-- [[../architecture/ingestion]]
+- [[../architecture/ingestion]] — Authoritative ingestion pipeline and external streaming architecture.
 - [[../decisions/ADR-002-sqs-over-kinesis]]
 - [[../decisions/ADR-003-transactional-outbox]]
+- [[../decisions/ADR-006-external-object-streaming-ingestion]] — External object streaming and S3 multipart lifecycle.

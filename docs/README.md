@@ -39,7 +39,7 @@ Roadmap / Open Questions
 
 ### Architecture
 - [[architecture/overview]] — High-level system context, component diagrams, and core data flows.
-- [[architecture/ingestion]] — Asynchronous document processing, transactional outbox, SQS, and ingestion workers.
+- [[architecture/ingestion]] — Asynchronous document processing, external object streaming, transactional outbox, SQS, and ingestion workers.
 - [[architecture/retrieval]] — Vector search, top-K selection, context assembly, and grounding strategy.
 - [[architecture/chat]] — Conversation lifecycle, message persistence, context building, and LLM streaming response.
 - [[architecture/reliability]] — Centralized reliability principles (at-least-once delivery, idempotency, retries, DLQ, checkpoints).
@@ -62,6 +62,7 @@ Roadmap / Open Questions
 - [[decisions/ADR-003-transactional-outbox]] — Transactional Outbox pattern for reliable database-to-queue publishing.
 - [[decisions/ADR-004-self-hosted-embeddings]] — Self-hosted embedding model strategy.
 - [[decisions/ADR-005-local-llm]] — Local/free LLM model initially behind a provider abstraction boundary.
+- [[decisions/ADR-006-external-object-streaming-ingestion]] — External object streaming ingestion, SSRF defense, and S3 multipart lifecycle.
 
 ### Development
 - [[development/implementation-plan]] — Phased implementation progress and task breakdown.

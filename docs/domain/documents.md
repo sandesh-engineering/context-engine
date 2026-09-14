@@ -12,12 +12,17 @@ This document defines the domain concepts, entities, lifecycles, and invariants 
 The root aggregate representing a logical document within the system.
 
 - **Attributes**: `id`, `title`, `source_type`, `created_at`, `updated_at`.
+  - `source_type`: Origin channel of document content:
+    - `'direct_upload'`: File uploaded directly via API multipart.
+    - `'external_url'`: Streamed from user-supplied external HTTP/HTTPS or presigned URL.
+    - `'s3_direct'`: Direct S3-to-S3 copy from authenticated source bucket.
 - **Responsibilities**: Serves as the stable parent identity for multiple document versions over time.
 
 ### DocumentVersion
 A specific immutable snapshot of a Document's file content.
 
 - **Attributes**: `id`, `document_id`, `version_number`, `s3_object_key`, `file_hash`, `file_size_bytes`, `created_at`.
+- **Object Storage Convention**: `tenants/{tenant_id}/documents/{document_id}/versions/{version_id}/raw.bin` (user-supplied filenames are preserved solely in relational metadata to avoid collisions and path traversal).
 - **Responsibilities**: Represents a single immutable file state that triggers an ingestion job.
 
 ---
@@ -65,5 +70,6 @@ stateDiagram-v2
 
 - [[ingestion-jobs]]
 - [[chunking]]
-- [[../architecture/ingestion]]
+- [[../architecture/ingestion]] — Authoritative ingestion pipeline and external object ingestion.
+- [[../decisions/ADR-006-external-object-streaming-ingestion]]
 - [[../infrastructure/database]]
