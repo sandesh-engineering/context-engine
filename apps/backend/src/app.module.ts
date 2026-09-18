@@ -6,6 +6,9 @@ import { validateEnv } from './config/env.validation';
 import { AppConfigService } from './config/app-config.service';
 
 
+import { IngestionModule } from './ingestion/ingestion.module';
+import { IngestionWorkerModule } from './ingestion/worker/ingestion-worker.module';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -13,6 +16,8 @@ import { AppConfigService } from './config/app-config.service';
       envFilePath: `.env.${process.env.NODE_ENV || 'development'}`,
       validate: validateEnv,
     }),
+    IngestionModule,
+    IngestionWorkerModule,
   ],
   controllers: [AppController],
   providers: [AppService, AppConfigService],

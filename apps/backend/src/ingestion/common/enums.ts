@@ -25,9 +25,8 @@ export enum IngestionJobStage {
   INDEXING = 'INDEXING',
 }
 
-/* Domain context for saga events */
-export enum SagaDomain {
-  DISPATCH = 'DISPATCH',
+/* Domain context for events */
+export enum Domain {
   DOCUMENT = 'DOCUMENT',
   INGESTION = 'INGESTION',
 }

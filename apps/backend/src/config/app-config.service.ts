@@ -49,4 +49,31 @@ export class AppConfigService {
   get otelSamplingRatio(): number {
     return this.config.get('OTEL_SAMPLING_RATIO', { infer: true }) ?? 1;
   }
+
+  get workerEnabled(): boolean {
+    return this.config.get('WORKER_ENABLED', { infer: true }) ?? false;
+  }
+
+  get sqsIngestionQueueUrl(): string {
+    return (
+      this.config.get('SQS_INGESTION_QUEUE_URL', { infer: true }) ??
+      'http://localhost:4566/000000000000/knowledge-engine-ingestion-queue'
+    );
+  }
+
+  get sqsPollWaitTimeSeconds(): number {
+    return this.config.get('SQS_POLL_WAIT_TIME_SECONDS', { infer: true }) ?? 20;
+  }
+
+  get sqsMaxNumberOfMessages(): number {
+    return this.config.get('SQS_MAX_NUMBER_OF_MESSAGES', { infer: true }) ?? 10;
+  }
+
+  get sqsVisibilityTimeoutSeconds(): number {
+    return this.config.get('SQS_VISIBILITY_TIMEOUT_SECONDS', { infer: true }) ?? 300;
+  }
+
+  get sqsPollerConcurrency(): number {
+    return this.config.get('SQS_POLLER_CONCURRENCY', { infer: true }) ?? 1;
+  }
 }

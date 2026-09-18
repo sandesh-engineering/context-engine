@@ -25,7 +25,7 @@ import type { TenantContext } from './common/tenant.decorator';
 @ApiTags('Ingestion')
 @Controller('documents')
 export class IngestionController {
-  constructor(private readonly ingestionService: IngestionService) {}
+  constructor(private readonly ingestionService: IngestionService) { }
 
   /**
    * Accepts a direct single-document multipart/form-data upload stream.
@@ -106,7 +106,12 @@ export class IngestionController {
     let fileHandled = false;
     let uploadPromise: Promise<any> | null = null;
 
-    const bb = busboy({ headers: req.headers });
+    const bb = busboy({
+      headers: req.headers,
+      limits: {
+        fileSize: 500 * 1024 * 1024,
+      },
+    });
 
     bb.on('field', (name, val) => {
       if (name === 'title' && val.trim().length > 0) {
