@@ -10,7 +10,7 @@ importers:
     dependencies:
       '@nestjs/config':
         specifier: ^12.0.0
-        version: 12.0.0(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@8.1.1))(rxjs@7.8.2)
+        version: 12.0.0(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(rxjs@7.8.2)
       zod:
         specifier: ^4.6.2
         version: 4.6.2
@@ -124,12 +124,15 @@ importers:
       '@aws-sdk/client-s3':
         specifier: ^3.758.0
         version: 3.1131.0
+      '@aws-sdk/client-sqs':
+        specifier: ^3.1134.0
+        version: 3.1134.0
       '@nestjs/common':
         specifier: ^12.0.1
         version: 12.0.1(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@8.1.1)
       '@nestjs/config':
         specifier: ^12.0.0
-        version: 12.0.0(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@8.1.1))(rxjs@7.8.2)
+        version: 12.0.0(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(rxjs@7.8.2)
       '@nestjs/core':
         specifier: ^12.0.1
         version: 12.0.1(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@8.1.1))(@nestjs/platform-express@12.0.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -172,6 +175,9 @@ importers:
       dotenv:
         specifier: ^17.4.2
         version: 17.4.2
+      file-type:
+        specifier: ^22.1.1
+        version: 22.1.1(supports-color@8.1.1)
       pg:
         specifier: ^8.13.3
         version: 8.23.0
@@ -437,6 +443,10 @@ packages:
     resolution: {integrity: sha512-jMw3q5sYNvWJRngkNwdS3H2WPBcdqhdrOez+7fBUB26fpH/2+TaJcDdlzdjgLTMhFTq2eOyXBSy1T/4A6CL/Lw==}
     engines: {node: '>=20.0.0'}
 
+  '@aws-sdk/client-sqs@3.1134.0':
+    resolution: {integrity: sha512-jQ+tvOmQ18y/566A0P1TUoz7RqT97jIfFC+FSvewPz6fO2uslGy5tM+8hjS+l/Wj4NAWmn5KDQX+CFEt1CtNTg==}
+    engines: {node: '>=20.0.0'}
+
   '@aws-sdk/core@3.978.0':
     resolution: {integrity: sha512-2yX9LUmxPklVjSGTb8dfnWRJSiFQ3TeH2nn7G1mdKHTfnabzF0+gfrS8rYfLWmZrQ8A3mEcxMJjRc51dL5KWaA==}
     engines: {node: '>=20.0.0'}
@@ -475,6 +485,10 @@ packages:
 
   '@aws-sdk/middleware-sdk-s3@3.972.76':
     resolution: {integrity: sha512-NfnTkVUTBKTBuBgqaapFK9r3YdkKt1b2oRvgLzZq91bwNKh6ZS0S7sEcheguttREaL4iyfs/xQnqD7Z7AsWSsA==}
+    engines: {node: '>=20.0.0'}
+
+  '@aws-sdk/middleware-sdk-sqs@3.972.42':
+    resolution: {integrity: sha512-D/O6iHAqlm0b430vIGewanSsr5RzaWbSDFlHYdKLWlZb4kaMKBmb44ReNHAFEKj5tNRY8pysw0qfciosB/VcJg==}
     engines: {node: '>=20.0.0'}
 
   '@aws-sdk/nested-clients@3.997.45':
@@ -5773,6 +5787,10 @@ packages:
     resolution: {integrity: sha512-0H8TsCUGBLx+V5adH3EY52hTAcyLKbV1D4gq5cIOJ6DnQAHeV9Z2Hhuc5CoBX4YmvB2oL+JIC84z0qO7JsCoNw==}
     engines: {node: '>=22'}
 
+  file-type@22.1.1:
+    resolution: {integrity: sha512-sEB0oStmeLGtpmSAD88RDNuLsvhv4iC3u0lE25CUvfCULvj49xoQ3l3K525Vn+ZzsZ6DOLajQCV6RmhwwhqiJg==}
+    engines: {node: '>=22'}
+
   fill-range@7.1.1:
     resolution: {integrity: sha512-YsGpe3WHLK8ZYi4tWDg2Jy3ebRz2rXowDxnld4bkQB00cc/1Zw9AWnC0i9ztDJitivtQvaI9KaLyKrc+hBW0yg==}
     engines: {node: '>=8'}
@@ -9183,6 +9201,18 @@ snapshots:
       '@smithy/types': 4.18.0
       tslib: 2.8.1
 
+  '@aws-sdk/client-sqs@3.1134.0':
+    dependencies:
+      '@aws-sdk/core': 3.978.0
+      '@aws-sdk/credential-provider-node': 3.972.83
+      '@aws-sdk/middleware-sdk-sqs': 3.972.42
+      '@aws-sdk/types': 3.974.5
+      '@smithy/core': 3.34.1
+      '@smithy/fetch-http-handler': 5.8.0
+      '@smithy/node-http-handler': 4.12.1
+      '@smithy/types': 4.18.0
+      tslib: 2.8.1
+
   '@aws-sdk/core@3.978.0':
     dependencies:
       '@aws-sdk/types': 3.974.5
@@ -9282,6 +9312,13 @@ snapshots:
     dependencies:
       '@aws-sdk/core': 3.978.0
       '@aws-sdk/signature-v4-multi-region': 3.996.46
+      '@aws-sdk/types': 3.974.5
+      '@smithy/core': 3.34.1
+      '@smithy/types': 4.18.0
+      tslib: 2.8.1
+
+  '@aws-sdk/middleware-sdk-sqs@3.972.42':
+    dependencies:
       '@aws-sdk/types': 3.974.5
       '@smithy/core': 3.34.1
       '@smithy/types': 4.18.0
@@ -11262,7 +11299,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@nestjs/config@12.0.0(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@8.1.1))(rxjs@7.8.2)':
+  '@nestjs/config@12.0.0(@nestjs/common@12.0.1(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(rxjs@7.8.2)':
     dependencies:
       '@nestjs/common': 12.0.1(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@8.1.1)
       '@standard-schema/spec': 1.1.0
@@ -15358,6 +15395,15 @@ snapshots:
       flat-cache: 4.0.1
 
   file-type@22.0.2(supports-color@8.1.1):
+    dependencies:
+      '@tokenizer/inflate': 0.4.1(supports-color@8.1.1)
+      strtok3: 10.3.5
+      token-types: 6.1.2
+      uint8array-extras: 1.5.0
+    transitivePeerDependencies:
+      - supports-color
+
+  file-type@22.1.1(supports-color@8.1.1):
     dependencies:
       '@tokenizer/inflate': 0.4.1(supports-color@8.1.1)
       strtok3: 10.3.5

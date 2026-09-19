@@ -5,8 +5,8 @@ import {
   IObjectStorageService,
   UploadPartResult,
   CompleteMultipartUploadResult,
+  StreamUploadResult,
 } from '../interfaces/object-storage.interface';
-import { StreamUploadResult } from './s3-storage.adapter';
 
 @Injectable()
 export class MemoryStorageAdapter implements IObjectStorageService {

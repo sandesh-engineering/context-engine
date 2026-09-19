@@ -101,3 +101,27 @@ c:\Users\Admin\Desktop\Coding\knowledge-engine\
 - **Run Backend Unit Tests**: `pnpm --filter backend test`
 - **Run Backend E2E Tests**: `pnpm --filter backend test:e2e`
 - **Build All Monorepo Apps**: `pnpm build`
+
+## 5. Skills
+
+Before starting any implementation:
+
+1. Inspect the available project/agent skills relevant to the requested task.
+2. Select only the skills that materially apply to the task.
+3. Read the selected skill instructions before making implementation decisions.
+4. Follow those skill instructions throughout the task.
+5. Do not load or apply unrelated skills just because they are available.
+6. If multiple skills apply, use the smallest relevant set and resolve any conflicting guidance explicitly.
+7. Prefer project-specific instructions and repository conventions over generic skills when they conflict.
+
+Examples:
+
+* TypeScript-heavy work → `typescript-expert` / `typescript-advanced-types`
+* Architecture/design-pattern work → `design-patterns`
+* OpenSpec workflow → the relevant `openspec-*` skill
+* React/Next.js frontend work → `vercel-react-best-practices`
+* Accessibility work → `accessibility`
+* Test Driven Development → `tdd`
+* Code Documentation → Always write comprehensive TSDoc comments (`@remarks`, `@param`, `@returns`, `@throws`, `@example`) for crucial services, classes, methods, repositories, and interfaces.
+
+Before implementation, briefly state which skills were selected and why.

@@ -1,3 +1,5 @@
+import { Readable } from 'stream';
+
 export interface UploadPartResult {
   eTag: string;
   partNumber: number;
@@ -7,6 +9,11 @@ export interface CompleteMultipartUploadResult {
   key: string;
   eTag: string;
   location?: string;
+}
+
+export interface StreamUploadResult extends CompleteMultipartUploadResult {
+  sha256Digest: string;
+  byteSize: number;
 }
 
 export interface IObjectStorageService {
@@ -25,6 +32,14 @@ export interface IObjectStorageService {
     contentType?: string,
     metadata?: Record<string, string>,
   ): Promise<{ key: string; eTag: string }>;
+  streamToStorage?(
+    key: string,
+    stream: Readable,
+    options?: {
+      metadata?: Record<string, string>;
+      partSize?: number;
+    },
+  ): Promise<StreamUploadResult>;
 }
 
 export const OBJECT_STORAGE_SERVICE = 'OBJECT_STORAGE_SERVICE';

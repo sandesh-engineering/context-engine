@@ -4,19 +4,20 @@ import {
   Logger,
   InternalServerErrorException,
   BadRequestException,
+  PayloadTooLargeException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Readable } from 'stream';
+import { Readable, Transform } from 'stream';
+import { fileTypeStream } from 'file-type';
 import type {
   IObjectStorageService,
+  StreamUploadResult,
 } from './storage/interfaces/object-storage.interface';
 import {
   OBJECT_STORAGE_SERVICE,
 } from './storage/interfaces/object-storage.interface';
 import { IngestionPersistenceService } from './services/ingestion-persistence.service';
 import { StoragePathBuilder } from './services/storage-path-builder.service';
-import { StreamValidator, ValidatedStreamResult } from './validation/stream-validator';
-import { S3StorageAdapter, StreamUploadResult } from './storage/adapters/s3-storage.adapter';
 import { IngestionJobStatus, IngestionJobStage } from './common/enums';
 
 export interface DocumentUploadStreamParams {
@@ -96,7 +97,6 @@ export class IngestionService {
     );
 
     this.logger.log('Starting document upload intake', {
-      tenantId: params.tenantId,
       title: params.title,
       originalFilename: params.originalFilename,
       storageKey,
@@ -122,7 +122,7 @@ export class IngestionService {
         sha256Digest: uploadResult.sha256Digest,
         byteSize: uploadResult.byteSize,
         originalFilename: params.originalFilename,
-        mimeType: validatedResult.sniffResult.mimeType,
+        mimeType: validatedResult.mimeType,
         metadata: {
           traceId: params.traceId,
           source: 'direct_upload',
@@ -134,7 +134,6 @@ export class IngestionService {
         versionId: persisted.version.id,
         jobId: persisted.job.id,
         storageKey,
-        tenantId: params.tenantId,
         traceId: params.traceId,
       });
 
@@ -151,7 +150,7 @@ export class IngestionService {
       };
     } catch (dbError) {
       /* Step 4: Consistency Handling - Execute compensating storage deletion on DB failure */
-      await this.compensateStorageRollback(storageKey, params.tenantId, params.traceId, dbError);
+      await this.compensateStorageRollback(storageKey, params.traceId, dbError);
       throw new InternalServerErrorException(
         'Failed to record document metadata after storage staging',
       );
@@ -174,14 +173,48 @@ export class IngestionService {
   }
 
   /**
-   * Executes stream magic byte sniffing and byte counting wrapping.
+   * Validates file stream type using file-type stream detection and enforces size bounds.
    */
   private async validateStream(
     stream: Readable,
     customMaxBytes?: number,
-  ): Promise<ValidatedStreamResult> {
+  ): Promise<{ stream: Readable; mimeType: string }> {
     const maxBytes = customMaxBytes || this.maxFileSizeBytes;
-    return StreamValidator.validateAndWrapStream(stream, { maxBytes });
+
+    let fts;
+    try {
+      fts = await fileTypeStream(Readable.toWeb(stream));
+    } catch (err: any) {
+      stream.destroy();
+      throw err;
+    }
+
+    if (!fts.fileType || fts.fileType.mime !== 'application/pdf') {
+      stream.destroy();
+      throw new BadRequestException('Invalid file format: Only valid PDF documents are allowed');
+    }
+
+    let bytesRead = 0;
+    const sizeLimiter = new Transform({
+      transform(chunk, encoding, callback) {
+        bytesRead += chunk.length;
+        if (bytesRead > maxBytes) {
+          return callback(
+            new PayloadTooLargeException(
+              `File size limit exceeded: Maximum allowed is ${maxBytes} bytes, received ${bytesRead} bytes`,
+            ),
+          );
+        }
+        callback(null, chunk);
+      },
+    });
+
+    const nodeStream = Readable.fromWeb(fts).pipe(sizeLimiter);
+
+    return {
+      stream: nodeStream,
+      mimeType: fts.fileType.mime,
+    };
   }
 
   /**
@@ -193,23 +226,18 @@ export class IngestionService {
     params: DocumentUploadStreamParams,
   ): Promise<StreamUploadResult> {
     try {
-      if ('streamToStorage' in this.storageService) {
-        return await (this.storageService as S3StorageAdapter).streamToStorage(
-          storageKey,
-          stream,
-          {
-            metadata: {
-              tenantId: params.tenantId,
-              originalFilename: encodeURIComponent(params.originalFilename),
-            },
+      if (typeof this.storageService.streamToStorage === 'function') {
+        return await this.storageService.streamToStorage(storageKey, stream, {
+          metadata: {
+            tenantId: params.tenantId,
+            originalFilename: encodeURIComponent(params.originalFilename),
           },
-        );
+        });
       }
       throw new Error('Configured storage service does not support stream staging');
     } catch (uploadError) {
       this.logger.error('Failed streaming document to object storage', {
         storageKey,
-        tenantId: params.tenantId,
         traceId: params.traceId,
         error: uploadError instanceof Error ? uploadError.message : String(uploadError),
       });
@@ -222,13 +250,11 @@ export class IngestionService {
    */
   private async compensateStorageRollback(
     storageKey: string,
-    tenantId: string,
     traceId: string | undefined,
     dbError: unknown,
   ): Promise<void> {
     this.logger.error('Database transaction failed. Initiating compensating storage deletion.', {
       storageKey,
-      tenantId,
       traceId,
       error: dbError instanceof Error ? dbError.message : String(dbError),
     });
@@ -238,7 +264,6 @@ export class IngestionService {
     } catch (cleanupError) {
       this.logger.error('Failed compensating deletion of orphaned storage object', {
         storageKey,
-        tenantId,
         error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
       });
     }

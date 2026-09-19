@@ -1,133 +1,129 @@
 import { Readable } from 'stream';
 import { BadRequestException, PayloadTooLargeException } from '@nestjs/common';
-import { MagicByteSniffer } from '../validation/magic-byte-sniffer';
-import { CountingStream } from '../validation/counting-stream';
-import { StreamValidator } from '../validation/stream-validator';
+import { IngestionService } from '../ingestion.service';
+import { MemoryStorageAdapter } from '../storage/adapters/memory-storage.adapter';
+import { StoragePathBuilder } from '../services/storage-path-builder.service';
 
 describe('Validation Pipeline Tests', () => {
-  describe('MagicByteSniffer', () => {
-    it('should detect valid PDF format', () => {
-      const pdfBuffer = Buffer.from('%PDF-1.7\nSample content');
-      const result = MagicByteSniffer.sniff(pdfBuffer);
-      expect(result.isAllowedPdf).toBe(true);
-      expect(result.format).toBe('pdf');
-      expect(result.mimeType).toBe('application/pdf');
-    });
+  let service: IngestionService;
+  let memoryStorage: MemoryStorageAdapter;
 
-    it('should reject zip archive files', () => {
-      const zipBuffer = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x00]);
-      const result = MagicByteSniffer.sniff(zipBuffer);
-      expect(result.isAllowedPdf).toBe(false);
-      expect(result.format).toBe('zip');
-      expect(result.isProhibited).toBe(true);
-      expect(() => MagicByteSniffer.validatePdf(zipBuffer)).toThrow(BadRequestException);
-    });
-
-    it('should reject gzip compressed streams', () => {
-      const gzipBuffer = Buffer.from([0x1f, 0x8b, 0x08, 0x00]);
-      const result = MagicByteSniffer.sniff(gzipBuffer);
-      expect(result.isAllowedPdf).toBe(false);
-      expect(result.format).toBe('gzip');
-      expect(result.isProhibited).toBe(true);
-      expect(() => MagicByteSniffer.validatePdf(gzipBuffer)).toThrow(BadRequestException);
-    });
-
-    it('should reject Windows PE executables (MZ header)', () => {
-      const peBuffer = Buffer.from('MZ\x90\x00\x03\x00\x00\x00');
-      const result = MagicByteSniffer.sniff(peBuffer);
-      expect(result.isAllowedPdf).toBe(false);
-      expect(result.format).toBe('pe_executable');
-      expect(result.isProhibited).toBe(true);
-      expect(() => MagicByteSniffer.validatePdf(peBuffer)).toThrow(BadRequestException);
-    });
-
-    it('should reject Linux ELF executables', () => {
-      const elfBuffer = Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01]);
-      const result = MagicByteSniffer.sniff(elfBuffer);
-      expect(result.isAllowedPdf).toBe(false);
-      expect(result.format).toBe('elf_executable');
-      expect(result.isProhibited).toBe(true);
-      expect(() => MagicByteSniffer.validatePdf(elfBuffer)).toThrow(BadRequestException);
-    });
-
-    it('should reject empty buffers', () => {
-      const emptyBuffer = Buffer.alloc(0);
-      const result = MagicByteSniffer.sniff(emptyBuffer);
-      expect(result.isAllowedPdf).toBe(false);
-      expect(() => MagicByteSniffer.validatePdf(emptyBuffer)).toThrow(BadRequestException);
-    });
+  beforeEach(() => {
+    memoryStorage = new MemoryStorageAdapter();
+    const mockPersistence = {
+      persistUploadedDocument: jest.fn().mockResolvedValue({
+        document: { id: 'doc-1', createdAt: new Date() },
+        version: { id: 'ver-1' },
+        job: { id: 'job-1', status: 'PENDING', stage: 'AVAILABLE' },
+      }),
+    } as any;
+    const mockConfig = {
+      get: jest.fn().mockReturnValue(500 * 1024 * 1024),
+    } as any;
+    service = new IngestionService(
+      memoryStorage,
+      mockPersistence,
+      new StoragePathBuilder(),
+      mockConfig,
+    );
   });
 
-  describe('CountingStream', () => {
-    it('should allow streams within size limit', async () => {
-      const stream = new CountingStream({ maxBytes: 100 });
-      const chunks: Buffer[] = [];
+  it('should accept valid PDF stream and preserve original bytes exactly once downstream', async () => {
+    const pdfContent = '%PDF-1.7\nSample Knowledge Document Content Part 1 Part 2';
+    const inputStream = Readable.from([
+      Buffer.from('%PDF-1.7\nSample Knowledge Document '),
+      Buffer.from('Content Part 1 '),
+      Buffer.from('Part 2'),
+    ]);
 
-      stream.on('data', (chunk) => chunks.push(chunk));
-
-      const promise = new Promise<void>((resolve, reject) => {
-        stream.on('end', resolve);
-        stream.on('error', reject);
-      });
-
-      stream.write(Buffer.from('Hello '));
-      stream.write(Buffer.from('World!'));
-      stream.end();
-
-      await promise;
-      expect(stream.bytesRead).toBe(12);
-      expect(Buffer.concat(chunks).toString()).toBe('Hello World!');
+    const result = await service.uploadDocument({
+      stream: inputStream,
+      originalFilename: 'document.pdf',
+      title: 'Valid PDF',
+      tenantId: 'tenant-1',
     });
 
-    it('should throw PayloadTooLargeException when limit is exceeded', async () => {
-      const stream = new CountingStream({ maxBytes: 10 });
-      const promise = new Promise<void>((resolve, reject) => {
-        stream.on('end', resolve);
-        stream.on('error', reject);
-      });
-
-      stream.write(Buffer.from('This is longer than 10 bytes'));
-      stream.end();
-
-      await expect(promise).rejects.toThrow(PayloadTooLargeException);
-    });
+    expect(result.byteSize).toBe(Buffer.byteLength(pdfContent));
+    const storedObj = memoryStorage.objects.get(result.storageKey);
+    expect(storedObj).toBeDefined();
+    expect(storedObj?.buffer.toString()).toBe(pdfContent);
   });
 
-  describe('StreamValidator', () => {
-    it('should successfully validate and wrap valid PDF stream without losing data', async () => {
-      const originalContent = '%PDF-1.7\nBinary Stream Test Content Part 1 Part 2';
-      const inputStream = Readable.from([
-        Buffer.from('%PDF-1.7\nBinary Stream '),
-        Buffer.from('Test Content Part 1 '),
-        Buffer.from('Part 2'),
-      ]);
+  it('should reject .pdf filename containing non-PDF bytes', async () => {
+    const inputStream = Readable.from([
+      Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+      Buffer.from('Spoofed zip payload disguised as pdf'),
+    ]);
 
-      const result = await StreamValidator.validateAndWrapStream(inputStream, {
-        maxBytes: 1024,
-      });
+    await expect(
+      service.uploadDocument({
+        stream: inputStream,
+        originalFilename: 'spoofed.pdf',
+        title: 'Spoofed File',
+        tenantId: 'tenant-1',
+      }),
+    ).rejects.toThrow(BadRequestException);
+  });
 
-      expect(result.sniffResult.isAllowedPdf).toBe(true);
-      expect(result.sniffResult.format).toBe('pdf');
+  it('should reject Content-Type application/pdf containing non-PDF bytes', async () => {
+    const inputStream = Readable.from([
+      Buffer.from('MZ\x90\x00\x03\x00\x00\x00'), // Windows PE header
+      Buffer.from('Executable code...'),
+    ]);
 
-      const chunks: Buffer[] = [];
-      for await (const chunk of result.stream) {
-        chunks.push(chunk);
-      }
+    await expect(
+      service.uploadDocument({
+        stream: inputStream,
+        originalFilename: 'malicious.pdf',
+        title: 'Spoofed Header',
+        tenantId: 'tenant-1',
+      }),
+    ).rejects.toThrow(BadRequestException);
+  });
 
-      const receivedText = Buffer.concat(chunks).toString();
-      expect(receivedText).toBe(originalContent);
-      expect(result.countingStream.bytesRead).toBe(Buffer.byteLength(originalContent));
+  it('should reject empty uploads', async () => {
+    const inputStream = Readable.from([]);
+
+    await expect(
+      service.uploadDocument({
+        stream: inputStream,
+        originalFilename: 'empty.pdf',
+        title: 'Empty Document',
+        tenantId: 'tenant-1',
+      }),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('should reject oversized uploads', async () => {
+    const inputStream = Readable.from([
+      Buffer.from('%PDF-1.7\nExcessive length payload content exceeding limit'),
+    ]);
+
+    await expect(
+      service.uploadDocument({
+        stream: inputStream,
+        originalFilename: 'oversized.pdf',
+        title: 'Oversized PDF',
+        tenantId: 'tenant-1',
+        maxSizeBytes: 20,
+      }),
+    ).rejects.toThrow(PayloadTooLargeException);
+  });
+
+  it('should propagate stream read errors', async () => {
+    const failingStream = new Readable({
+      read() {
+        this.emit('error', new Error('Underlying stream connection reset'));
+      },
     });
 
-    it('should reject stream when initial bytes are not valid PDF', async () => {
-      const inputStream = Readable.from([
-        Buffer.from([0x50, 0x4b, 0x03, 0x04]), // Zip header
-        Buffer.from('Some zip contents...'),
-      ]);
-
-      await expect(
-        StreamValidator.validateAndWrapStream(inputStream, { maxBytes: 1024 }),
-      ).rejects.toThrow(BadRequestException);
-    });
+    await expect(
+      service.uploadDocument({
+        stream: failingStream,
+        originalFilename: 'failing.pdf',
+        title: 'Stream Error',
+        tenantId: 'tenant-1',
+      }),
+    ).rejects.toThrow('Underlying stream connection reset');
   });
 });

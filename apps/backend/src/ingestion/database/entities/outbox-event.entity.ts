@@ -5,7 +5,7 @@ import {
   CreateDateColumn,
   Index,
 } from 'typeorm';
-import { SagaDomain } from '../../common/enums';
+import { Domain } from '../../common/enums';
 
 @Entity('outbox_events')
 export class OutboxEventEntity {
@@ -25,13 +25,9 @@ export class OutboxEventEntity {
   @Column({ type: 'int', default: 0 })
   version!: number;
 
-  /* Distributed transaction saga identifier correlating cross-service operations */
-  @Column({ type: 'uuid' })
-  saga_id!: string;
-
-  /* Saga domain category defining message origin and processing scope */
-  @Column({ type: 'enum', enum: SagaDomain, default: SagaDomain.DISPATCH })
-  domain!: SagaDomain;
+  /* Domain category defining message origin and processing scope */
+  @Column({ type: 'enum', enum: Domain, default: Domain.DOCUMENT })
+  domain!: Domain;
 
   /* Complete immutable payload passed to downstream consumers */
   @Column({ type: 'jsonb' })

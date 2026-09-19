@@ -11,7 +11,7 @@ import {
   DocumentSourceType,
   IngestionJobStatus,
   IngestionJobStage,
-  SagaDomain,
+  Domain,
 } from '../common/enums';
 
 export interface PersistDocumentParams {
@@ -36,7 +36,7 @@ export interface PersistDocumentResult {
 export class IngestionPersistenceService {
   private readonly logger = new Logger(IngestionPersistenceService.name);
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(private readonly dataSource: DataSource) { }
 
   /**
    * Atomically records Document, DocumentVersion, IngestionJob, and OutboxEvent in PostgreSQL.
@@ -102,7 +102,7 @@ export class IngestionPersistenceService {
         topic: 'document.ingestion.v1',
         version: 1,
         saga_id: savedDocument.id,
-        domain: SagaDomain.DOCUMENT,
+        domain: Domain.DOCUMENT,
         retries: 0,
         processed: false,
         processed_at: null,

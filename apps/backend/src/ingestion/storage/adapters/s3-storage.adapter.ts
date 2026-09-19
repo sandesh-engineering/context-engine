@@ -14,19 +14,17 @@ import {
   IObjectStorageService,
   UploadPartResult,
   CompleteMultipartUploadResult,
+  StreamUploadResult,
 } from '../interfaces/object-storage.interface';
 import { RetryPolicy } from '../../resilience/retry-policy';
+
+export type { StreamUploadResult };
 
 export interface S3StorageAdapterOptions {
   bucketName: string;
   client?: S3Client;
   retryPolicy?: RetryPolicy;
   minPartSizeBytes?: number; // S3 minimum is 5MB for multipart
-}
-
-export interface StreamUploadResult extends CompleteMultipartUploadResult {
-  sha256Digest: string;
-  byteSize: number;
 }
 
 @Injectable()
@@ -132,8 +130,7 @@ export class S3StorageAdapter implements IObjectStorageService {
       this.logger.log(`Successfully aborted multipart upload ${uploadId} for key ${key}`);
     } catch (error) {
       this.logger.warn(
-        `Failed to abort multipart upload ${uploadId} for key ${key}: ${
-          error instanceof Error ? error.message : String(error)
+        `Failed to abort multipart upload ${uploadId} for key ${key}: ${error instanceof Error ? error.message : String(error)
         }`,
       );
     }
@@ -149,8 +146,7 @@ export class S3StorageAdapter implements IObjectStorageService {
       this.logger.log(`Compensating deletion: deleted object ${key} from bucket ${this.bucketName}`);
     } catch (error) {
       this.logger.error(
-        `Failed compensating deletion for key ${key}: ${
-          error instanceof Error ? error.message : String(error)
+        `Failed compensating deletion for key ${key}: ${error instanceof Error ? error.message : String(error)
         }`,
       );
       throw error;
@@ -180,79 +176,115 @@ export class S3StorageAdapter implements IObjectStorageService {
     });
   }
 
-  /**
-   * High-level streaming uploader with bounded memory buffering,
-   * incremental SHA-256 calculation, and deterministic cleanup on abort/error.
-   */
   async streamToStorage(
     key: string,
     stream: Readable,
-    options?: { metadata?: Record<string, string>; partSize?: number },
+    options?: {
+      metadata?: Record<string, string>;
+      partSize?: number;
+    },
   ): Promise<StreamUploadResult> {
+
+    /* Size of each multipart part. */
     const partSize = options?.partSize || this.minPartSizeBytes;
+
+    /* Incrementally calculate the file's content hash. */
     const sha256Hash = crypto.createHash('sha256');
+
+    /* Multipart upload identifier. */
     let uploadId: string | null = null;
+
+    /* Total uploaded bytes. */
     let totalBytes = 0;
+
+    /* Current multipart part number. */
     let partNumber = 1;
+
+    /* Uploaded part metadata required for completion. */
     const parts: UploadPartResult[] = [];
+
+    /* Buffer only the current part. */
     let currentBufferChunks: Buffer[] = [];
     let currentBufferLength = 0;
 
     try {
-      uploadId = await this.createMultipartUpload(key, options?.metadata);
+      /* Start multipart upload. */
+      uploadId = await this.createMultipartUpload(
+        key,
+        options?.metadata,
+      );
 
       for await (const chunk of stream) {
-        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        const buffer = Buffer.isBuffer(chunk)
+          ? chunk
+          : Buffer.from(chunk);
+
+        /* Update content hash. */
         sha256Hash.update(buffer);
+
+        /* Track total file size. */
         totalBytes += buffer.length;
 
+        /* Add data to the current part. */
         currentBufferChunks.push(buffer);
         currentBufferLength += buffer.length;
 
         if (currentBufferLength >= partSize) {
+          /* Build the current part. */
           const partBuffer = Buffer.concat(currentBufferChunks);
+
+          /* Upload the part. */
           const uploadPartResult = await this.uploadPart(
             uploadId,
             key,
             partNumber++,
             partBuffer,
           );
+
+          /* Remember the uploaded part. */
           parts.push(uploadPartResult);
 
+          /* Start the next part. */
           currentBufferChunks = [];
           currentBufferLength = 0;
         }
       }
 
-      // Upload remaining final part if any
+      /* Upload the final part. */
       if (currentBufferLength > 0 || parts.length === 0) {
         const finalBuffer = Buffer.concat(currentBufferChunks);
+
         const uploadPartResult = await this.uploadPart(
           uploadId,
           key,
           partNumber,
           finalBuffer,
         );
+
         parts.push(uploadPartResult);
       }
 
+      /* Assemble all parts into the final object. */
       const completeResult = await this.completeMultipartUpload(
         uploadId,
         key,
         parts,
       );
 
-      const finalSha256 = sha256Hash.digest('hex');
+      /* Get the final content fingerprint. */
+      const sha256Digest = sha256Hash.digest('hex');
 
       return {
         ...completeResult,
-        sha256Digest: finalSha256,
+        sha256Digest,
         byteSize: totalBytes,
       };
     } catch (error) {
+      /* Remove incomplete multipart upload. */
       if (uploadId) {
         await this.abortMultipartUpload(uploadId, key);
       }
+
       throw error;
     }
   }
