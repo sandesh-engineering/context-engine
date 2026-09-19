@@ -1,0 +1,51 @@
+
+/dist
+/build
+/out-tsc
+
+# Dependencies
+/node_modules
+
+# Logs
+logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Environment / Secret Files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.development
+.env.test
+.env.production
+
+# Testing
+/coverage
+/.nyc_output
+
+# IDEs and System Files
+.DS_Store
+/.idea
+/.project
+/.classpath
+/.c9/
+*.launch
+/.settings/
+*.sublime-workspace
+
+# VS Code specific settings
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Temporary files
+.temp
+.tmp

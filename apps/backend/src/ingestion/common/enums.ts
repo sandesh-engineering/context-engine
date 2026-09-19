@@ -5,7 +5,7 @@ export enum DocumentSourceType {
   S3_DIRECT = 's3_direct',
 }
 
-/* Ingestion job life-cycle status */
+/* Ingestion job lifecycle status */
 export enum IngestionJobStatus {
   PENDING = 'PENDING',
   PROCESSING = 'PROCESSING',
@@ -13,12 +13,13 @@ export enum IngestionJobStatus {
   FAILED = 'FAILED',
 }
 
-/* Granular pipeline processing stages */
+/* Current stage within the ingestion pipeline */
 export enum IngestionJobStage {
   DOWNLOADING = 'DOWNLOADING',
   UPLOADING = 'UPLOADING',
   VERIFYING = 'VERIFYING',
-  AVAILABLE = 'AVAILABLE',
+  SOURCE_READY = 'SOURCE_READY',
+
   PARSING = 'PARSING',
   CHUNKING = 'CHUNKING',
   EMBEDDING = 'EMBEDDING',

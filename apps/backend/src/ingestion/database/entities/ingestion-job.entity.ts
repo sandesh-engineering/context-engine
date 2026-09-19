@@ -32,7 +32,7 @@ export class IngestionJobEntity {
   @Column({
     type: 'enum',
     enum: IngestionJobStage,
-    default: IngestionJobStage.AVAILABLE,
+    default: IngestionJobStage.SOURCE_READY,
   })
   stage!: IngestionJobStage;
 

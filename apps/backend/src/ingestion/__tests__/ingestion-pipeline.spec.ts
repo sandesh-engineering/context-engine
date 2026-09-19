@@ -9,7 +9,7 @@ import {
   DocumentEntity,
   DocumentVersionEntity,
   IngestionJobEntity,
-  OutboxEventEntity,
+  IngestionOutboxEntity,
 } from '../database/entities';
 import { IngestionJobStatus, IngestionJobStage } from '../common/enums';
 
@@ -52,9 +52,9 @@ describe('Ingestion Pipeline Integration Tests', () => {
         job.id = 'job-uuid-123';
         job.versionId = ver.id;
         job.status = IngestionJobStatus.PENDING;
-        job.stage = IngestionJobStage.AVAILABLE;
+        job.stage = IngestionJobStage.SOURCE_READY;
 
-        const outbox = new OutboxEventEntity();
+        const outbox = new IngestionOutboxEntity();
         outbox.id = 'outbox-uuid-123';
         outbox.processed = false;
 
@@ -91,7 +91,7 @@ describe('Ingestion Pipeline Integration Tests', () => {
       expect(result.versionId).toBe('ver-uuid-123');
       expect(result.jobId).toBe('job-uuid-123');
       expect(result.status).toBe(IngestionJobStatus.PENDING);
-      expect(result.stage).toBe(IngestionJobStage.AVAILABLE);
+      expect(result.stage).toBe(IngestionJobStage.SOURCE_READY);
       expect(result.sha256Digest).toBeDefined();
       expect(result.byteSize).toBe(Buffer.byteLength(pdfContent));
       expect(storageAdapter.objects.has(result.storageKey)).toBe(true);

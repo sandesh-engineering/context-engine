@@ -1,6 +1,25 @@
 services:
   jaeger:
-    image: jaegertracing/all-in-one:latest # PIN THE VERSION
+    image: jaegertracing/all-in-one:latest 
     ports:
       - '16686:16686'
       - '4317:4317'
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  ollama_data:

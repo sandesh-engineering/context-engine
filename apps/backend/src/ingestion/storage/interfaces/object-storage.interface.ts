@@ -40,6 +40,7 @@ export interface IObjectStorageService {
       partSize?: number;
     },
   ): Promise<StreamUploadResult>;
+  getObjectStream?(key: string): Promise<Readable>;
 }
 
 export const OBJECT_STORAGE_SERVICE = 'OBJECT_STORAGE_SERVICE';

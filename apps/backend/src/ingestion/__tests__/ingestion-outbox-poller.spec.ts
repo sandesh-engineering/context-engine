@@ -1,12 +1,12 @@
-import { OutboxPollerService } from '../messaging/services/outbox-poller.service';
+import { IngestionOutboxPollerService } from '../messaging/services/ingestion-outbox-poller.service';
 import { IMessagePublisher } from '../messaging/interfaces/message-publisher.interface';
-import { OutboxEventEntity } from '../database/entities';
+import { IngestionOutboxEntity } from '../database/entities';
 
 describe('OutboxPollerService Unit Tests', () => {
   let mockPublisher: jest.Mocked<IMessagePublisher>;
   let mockOutboxRepository: any;
   let mockConfigService: any;
-  let pollerService: OutboxPollerService;
+  let pollerService: IngestionOutboxPollerService;
 
   beforeEach(() => {
     mockPublisher = {
@@ -29,7 +29,7 @@ describe('OutboxPollerService Unit Tests', () => {
       }),
     };
 
-    pollerService = new OutboxPollerService(
+    pollerService = new IngestionOutboxPollerService(
       mockPublisher,
       mockOutboxRepository,
       mockConfigService,
@@ -48,7 +48,7 @@ describe('OutboxPollerService Unit Tests', () => {
   });
 
   it('should poll pending events, publish batch, and mark processed on success', async () => {
-    const pendingEvents: Partial<OutboxEventEntity>[] = [
+    const pendingEvents: Partial<IngestionOutboxEntity>[] = [
       {
         id: '1',
         event_id: 'evt_1',
@@ -75,7 +75,7 @@ describe('OutboxPollerService Unit Tests', () => {
   });
 
   it('should reroute failed items to DLQ and mark failed DLQ in repository', async () => {
-    const pendingEvents: Partial<OutboxEventEntity>[] = [
+    const pendingEvents: Partial<IngestionOutboxEntity>[] = [
       {
         id: '1',
         event_id: 'evt_fail',

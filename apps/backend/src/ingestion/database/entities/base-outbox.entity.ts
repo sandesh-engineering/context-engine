@@ -1,5 +1,4 @@
 import {
-  Entity,
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
@@ -7,8 +6,7 @@ import {
 } from 'typeorm';
 import { Domain } from '../../common/enums';
 
-@Entity('outbox_events')
-export class OutboxEventEntity {
+export abstract class BaseOutboxEntity {
   /* Database-generated primary identifier for outbox event record */
   @PrimaryGeneratedColumn('uuid')
   id!: string;

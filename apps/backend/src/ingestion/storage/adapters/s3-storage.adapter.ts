@@ -7,6 +7,7 @@ import {
   AbortMultipartUploadCommand,
   DeleteObjectCommand,
   PutObjectCommand,
+  GetObjectCommand,
 } from '@aws-sdk/client-s3';
 import { Readable } from 'stream';
 import * as crypto from 'crypto';
@@ -287,5 +288,25 @@ export class S3StorageAdapter implements IObjectStorageService {
 
       throw error;
     }
+  }
+
+  /**
+   * Retrieves a readable stream for an object stored in S3.
+   *
+   * @param {string} key - S3 object storage key
+   * @returns {Promise<Readable>} Readable stream of object binary payload
+   */
+  async getObjectStream(key: string): Promise<Readable> {
+    return this.retryPolicy.execute(async () => {
+      const command = new GetObjectCommand({
+        Bucket: this.bucketName,
+        Key: key,
+      });
+      const response = await this.s3Client.send(command);
+      if (!response.Body) {
+        throw new Error(`Failed to retrieve object stream for key ${key}: Empty body`);
+      }
+      return response.Body as Readable;
+    });
   }
 }

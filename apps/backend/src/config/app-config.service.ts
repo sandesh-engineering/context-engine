@@ -61,6 +61,13 @@ export class AppConfigService {
     );
   }
 
+  get sqsEmbeddingQueueUrl(): string {
+    return (
+      this.config.get('SQS_EMBEDDING_QUEUE_URL', { infer: true }) ??
+      'http://localhost:4566/000000000000/knowledge-engine-embedding-queue'
+    );
+  }
+
   get sqsPollWaitTimeSeconds(): number {
     return this.config.get('SQS_POLL_WAIT_TIME_SECONDS', { infer: true }) ?? 20;
   }
@@ -75,5 +82,41 @@ export class AppConfigService {
 
   get sqsPollerConcurrency(): number {
     return this.config.get('SQS_POLLER_CONCURRENCY', { infer: true }) ?? 1;
+  }
+
+  get documentTempDir(): string {
+    return this.config.get('DOCUMENT_TEMP_DIR', { infer: true }) ?? './tmp/documents';
+  }
+
+  get documentMaxSizeBytes(): number {
+    return this.config.get('DOCUMENT_MAX_SIZE_BYTES', { infer: true }) ?? 104857600;
+  }
+
+  get documentTempDiskLimitBytes(): number {
+    return this.config.get('DOCUMENT_TEMP_DISK_LIMIT_BYTES', { infer: true }) ?? 5368709120;
+  }
+
+  get ollamaBaseUrl(): string {
+    return this.config.get('OLLAMA_BASE_URL', { infer: true }) ?? 'http://localhost:11434';
+  }
+
+  get ollamaEmbeddingModel(): string {
+    return this.config.get('OLLAMA_EMBEDDING_MODEL', { infer: true }) ?? 'embeddinggemma';
+  }
+
+  get embeddingDimensions(): number {
+    return this.config.get('EMBEDDING_DIMENSIONS', { infer: true }) ?? 768;
+  }
+
+  get embeddingBatchSize(): number {
+    return this.config.get('EMBEDDING_BATCH_SIZE', { infer: true }) ?? 20;
+  }
+
+  get circuitBreakerFailureThreshold(): number {
+    return this.config.get('CIRCUIT_BREAKER_FAILURE_THRESHOLD', { infer: true }) ?? 5;
+  }
+
+  get circuitBreakerResetTimeoutMs(): number {
+    return this.config.get('CIRCUIT_BREAKER_RESET_TIMEOUT_MS', { infer: true }) ?? 30000;
   }
 }

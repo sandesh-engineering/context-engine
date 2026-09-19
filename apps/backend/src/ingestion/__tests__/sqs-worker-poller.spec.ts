@@ -116,7 +116,7 @@ describe('SqsIngestionPollerService Unit Tests', () => {
 
     expect(mockJobsRepository.claimJobForProcessing).toHaveBeenCalledWith('job-dup');
     expect(mockJobsRepository.markJobCompleted).not.toHaveBeenCalled();
-    // Verify duplicate SQS message is deleted to acknowledge queue
+    /* Verify duplicate SQS message is deleted to acknowledge queue */
     expect(mockSqsClient.send).toHaveBeenCalledWith(expect.any(DeleteMessageCommand));
   });
 
@@ -143,13 +143,13 @@ describe('SqsIngestionPollerService Unit Tests', () => {
       },
     });
 
-    // Mock processing failure by forcing markJobCompleted or pipeline to throw
+    /* Mock processing failure by forcing markJobCompleted or pipeline to throw */
     jest.spyOn(pollerService as any, 'executeJobPipeline').mockRejectedValue(new Error('Pipeline execution failed'));
 
     await expect(pollerService.processSqsMessage(message)).rejects.toThrow('Pipeline execution failed');
 
     expect(mockJobsRepository.markJobFailed).toHaveBeenCalledWith('job-err', 'Pipeline execution failed');
-    // Verify DeleteMessageCommand was NOT sent so message remains for visibility timeout / retry
+    /* Verify DeleteMessageCommand was NOT sent so message remains for visibility timeout / retry */
     expect(mockSqsClient.send).not.toHaveBeenCalledWith(expect.any(DeleteMessageCommand));
   });
 
