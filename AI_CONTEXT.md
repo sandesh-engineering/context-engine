@@ -116,7 +116,7 @@ Before starting any implementation:
 
 Examples:
 
-* TypeScript-heavy work → `typescript-expert` / `typescript-advanced-types`
+* TypeScript-heavy work or writing types, inferring types, typing methods and services → `typescript-expert` / `typescript-advanced-types`
 * Architecture/design-pattern work → `design-patterns`
 * OpenSpec workflow → the relevant `openspec-*` skill
 * React/Next.js frontend work → `vercel-react-best-practices`

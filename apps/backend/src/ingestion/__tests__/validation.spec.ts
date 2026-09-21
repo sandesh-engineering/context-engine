@@ -14,7 +14,7 @@ describe('Validation Pipeline Tests', () => {
       persistUploadedDocument: jest.fn().mockResolvedValue({
         document: { id: 'doc-1', createdAt: new Date() },
         version: { id: 'ver-1' },
-        job: { id: 'job-1', status: 'PENDING', stage: 'AVAILABLE' },
+        job: { id: 'job-1', status: 'PENDING', stage: 'SOURCE_READY' },
       }),
     } as any;
     const mockConfig = {

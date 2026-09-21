@@ -4,6 +4,7 @@ import {
   Logger,
   OnModuleInit,
   OnModuleDestroy,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -20,28 +21,24 @@ export interface PollerBatchResult {
   failedCount: number;
 }
 
-export interface OutboxPollerOptions {
+export interface IngestionOutboxPollerOptions {
   batchSize?: number;
   pollIntervalMs?: number;
   autoStart?: boolean;
 }
 
 /**
- * Asynchronous background poller service that periodically queries pending outbox events
- * from PostgreSQL and batch-publishes them to message transport queues (SQS/DLQ).
- *
- * @remarks
- * - Polling concurrency is guarded via in-memory lock `isPolling` to prevent overlapping execution.
- * - Utilizes `OutboxRepository` for dedicated database access.
- * - Uses `IMessagePublisher` for provider-agnostic message transport.
+ * Asynchronous background poller service that periodically queries pending ingestion outbox events
+ * from PostgreSQL (`ingestion_outbox` table) and batch-publishes them to SQS.
  */
 @Injectable()
-export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(OutboxPollerService.name);
+export class IngestionOutboxPollerService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(IngestionOutboxPollerService.name);
   private readonly batchSize: number;
   private readonly pollIntervalMs: number;
   private isPolling = false;
   private timerHandle?: NodeJS.Timeout;
+  private readonly maxRetries: number;
 
   private readonly messagePublisher: IMessagePublisher;
 
@@ -50,7 +47,7 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
     messagePublisher: IMessagePublisher,
     private readonly outboxRepository: OutboxRepository,
     private readonly configService: ConfigService,
-    options?: OutboxPollerOptions,
+    @Optional() options?: IngestionOutboxPollerOptions,
   ) {
     this.messagePublisher = messagePublisher;
     this.batchSize =
@@ -62,11 +59,12 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
       options?.pollIntervalMs ||
       this.configService.get<number>('OUTBOX_POLL_INTERVAL_MS') ||
       1000;
+
+    this.maxRetries =
+      this.configService.get<number>('OUTBOX_MAX_RETRIES') ||
+      3;
   }
 
-  /**
-   * NestJS lifecycle hook called after module initialization.
-   */
   onModuleInit(): void {
     const enabled = this.configService.get<string>('OUTBOX_POLLER_ENABLED') !== 'false';
     if (enabled) {
@@ -74,63 +72,33 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /**
-   * NestJS lifecycle hook called before application shutdown.
-   */
   onModuleDestroy(): void {
     this.stopPolling();
   }
 
-  /**
-   * Starts periodic polling background loop using configured interval.
-   *
-   * @remarks
-   * - No-ops if poller loop is already active.
-   */
   startPolling(): void {
     if (this.timerHandle) return;
-    this.logger.log('Starting Outbox Poller background loop', {
+    this.logger.log('Starting Ingestion Outbox Poller background loop', {
       batchSize: this.batchSize,
       intervalMs: this.pollIntervalMs,
     });
     this.timerHandle = setInterval(() => {
       this.pollAndPublishBatch().catch((err) => {
-        this.logger.error('Unhandled error in Outbox Poller iteration', {
+        this.logger.error('Unhandled error in Ingestion Outbox Poller iteration', {
           error: err instanceof Error ? err.message : String(err),
         });
       });
     }, this.pollIntervalMs);
   }
 
-  /**
-   * Stops periodic polling background loop cleanly.
-   */
   stopPolling(): void {
     if (this.timerHandle) {
       clearInterval(this.timerHandle);
       this.timerHandle = undefined;
-      this.logger.log('Stopped Outbox Poller background loop');
+      this.logger.log('Stopped Ingestion Outbox Poller background loop');
     }
   }
 
-  /**
-   * Executes a single polling cycle: fetches pending outbox events, formats payloads,
-   * batch-publishes to queue publisher, handles retries/DLQ rerouting, and updates database records.
-   *
-   * @remarks
-   * - Guarded against concurrent runs via `isPolling` flag.
-   * - Propagates OpenTelemetry `traceId` context in message attributes.
-   * - Ensures PII is redacted from all log outputs.
-   *
-   * @param {number} [customBatchSize] - Optional override for batch polling limit
-   * @returns {Promise<PollerBatchResult>} Results summary of the polling iteration
-   * @throws {Error} Throws if database query or unhandled publisher exception occurs
-   *
-   * @example
-   * ```ts
-   * const result = await pollerService.pollAndPublishBatch(10);
-   * ```
-   */
   async pollAndPublishBatch(customBatchSize?: number): Promise<PollerBatchResult> {
     if (this.isPolling) {
       return { polledCount: 0, publishedCount: 0, dlqCount: 0, failedCount: 0 };
@@ -153,7 +121,7 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
         return { polledCount: 0, publishedCount: 0, dlqCount: 0, failedCount: 0 };
       }
 
-      this.logger.log('Polled pending outbox events', { batchSize: polledCount });
+      this.logger.log('Polled pending ingestion outbox events', { batchSize: polledCount });
 
       const messages: OutboxMessagePayload[] = pendingEvents.map((evt) => ({
         eventId: evt.event_id,
@@ -175,33 +143,56 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
         publishedCount = successIds.length;
       }
 
-      /* Reroute failed items to DLQ */
+      /* Handle failed items: increment retries or reroute to DLQ */
       if (publishResult.failed.length > 0) {
         failedCount = publishResult.failed.length;
         const failedEventIds = publishResult.failed.map((item) => item.eventId);
-        const failedMessages = messages.filter((m) =>
-          failedEventIds.includes(m.eventId),
-        );
+        const dlqEligibleIds: string[] = [];
+        const retryEligibleIds: string[] = [];
 
-        try {
-          const dlqResult = await this.messagePublisher.publishToDlq(
-            failedMessages,
-            'Batch publish failed after retries',
-          );
-          const dlqSuccessIds = dlqResult.successful.map((item) => item.eventId);
-          if (dlqSuccessIds.length > 0) {
-            await this.outboxRepository.markEventsFailedDlq(dlqSuccessIds);
-            dlqCount = dlqSuccessIds.length;
+        for (const failedId of failedEventIds) {
+          const eventRecord = pendingEvents.find((evt) => evt.event_id === failedId);
+          const currentRetries = eventRecord?.retries || 0;
+          if (currentRetries + 1 >= this.maxRetries) {
+            dlqEligibleIds.push(failedId);
+          } else {
+            retryEligibleIds.push(failedId);
           }
-        } catch (dlqErr) {
-          this.logger.error('Failed rerouting unprocessable outbox batch to DLQ', {
-            failedCount,
-            error: dlqErr instanceof Error ? dlqErr.message : String(dlqErr),
+        }
+
+        if (retryEligibleIds.length > 0) {
+          await this.outboxRepository.incrementRetries(retryEligibleIds);
+          this.logger.warn('Incremented ingestion outbox retry attempt counters', {
+            retryCount: retryEligibleIds.length,
+            eventIds: retryEligibleIds,
           });
+        }
+
+        if (dlqEligibleIds.length > 0) {
+          const failedMessages = messages.filter((m) =>
+            dlqEligibleIds.includes(m.eventId),
+          );
+
+          try {
+            const dlqResult = await this.messagePublisher.publishToDlq(
+              failedMessages,
+              `Batch publish failed after ${this.maxRetries} retries`,
+            );
+            const dlqSuccessIds = dlqResult.successful.map((item) => item.eventId);
+            if (dlqSuccessIds.length > 0) {
+              await this.outboxRepository.markEventsFailedDlq(dlqSuccessIds);
+              dlqCount = dlqSuccessIds.length;
+            }
+          } catch (dlqErr) {
+            this.logger.error('Failed rerouting unprocessable ingestion outbox batch to DLQ', {
+              dlqCount: dlqEligibleIds.length,
+              error: dlqErr instanceof Error ? dlqErr.message : String(dlqErr),
+            });
+          }
         }
       }
 
-      this.logger.log('Completed outbox relay iteration', {
+      this.logger.log('Completed ingestion outbox relay iteration', {
         polledCount,
         publishedCount,
         dlqCount,
@@ -210,7 +201,7 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
 
       return { polledCount, publishedCount, dlqCount, failedCount };
     } catch (err) {
-      this.logger.error('Outbox Poller iteration failed', {
+      this.logger.error('Ingestion Outbox Poller iteration failed', {
         error: err instanceof Error ? err.message : String(err),
       });
       throw err;
@@ -219,3 +210,4 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
     }
   }
 }
+export { IngestionOutboxPollerService as OutboxPollerService };

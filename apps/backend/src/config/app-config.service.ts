@@ -4,7 +4,7 @@ import type { Env } from './env.validation';
 
 /**
  * Typed wrapper around NestJS ConfigService.
- * Inject this instead of raw ConfigService to get full type safety.
+ * Inject this instead of raw ConfigService to get full type safety across application features.
  *
  * @example
  * constructor(private readonly appConfig: AppConfigService) {}
@@ -26,6 +26,10 @@ export class AppConfigService {
     return this.config.get('CORS_ORIGIN', { infer: true });
   }
 
+  get defaultDemoTenantId(): string {
+    return this.config.get('DEFAULT_DEMO_TENANT_ID', { infer: true }) ?? 'demo-tenant-001';
+  }
+
   get isProduction(): boolean {
     return this.nodeEnv === 'production';
   }
@@ -34,6 +38,62 @@ export class AppConfigService {
     return this.nodeEnv === 'development';
   }
 
+  /* Database (PostgreSQL + pgvector) */
+  get dbHost(): string {
+    return this.config.get('DB_HOST', { infer: true }) ?? 'localhost';
+  }
+
+  get dbPort(): number {
+    return this.config.get('DB_PORT', { infer: true }) ?? 5432;
+  }
+
+  get dbUsername(): string {
+    return this.config.get('DB_USERNAME', { infer: true }) ?? 'postgres';
+  }
+
+  get dbPassword(): string {
+    return this.config.get('DB_PASSWORD', { infer: true }) ?? 'postgres';
+  }
+
+  get dbName(): string {
+    return this.config.get('DB_NAME', { infer: true }) ?? 'knowledge_engine';
+  }
+
+  /* pgAdmin 4 */
+  get pgAdminDefaultEmail(): string {
+    return this.config.get('PGADMIN_DEFAULT_EMAIL', { infer: true }) ?? 'admin@admin.com';
+  }
+
+  get pgAdminDefaultPassword(): string {
+    return this.config.get('PGADMIN_DEFAULT_PASSWORD', { infer: true }) ?? 'admin';
+  }
+
+  get pgAdminPort(): number {
+    return this.config.get('PGADMIN_PORT', { infer: true }) ?? 5050;
+  }
+
+  /* AWS Services */
+  get awsRegion(): string {
+    return this.config.get('AWS_REGION', { infer: true }) ?? 'us-east-1';
+  }
+
+  get awsAccessKeyId(): string | undefined {
+    return this.config.get('AWS_ACCESS_KEY_ID', { infer: true });
+  }
+
+  get awsSecretAccessKey(): string | undefined {
+    return this.config.get('AWS_SECRET_ACCESS_KEY', { infer: true });
+  }
+
+  get awsS3Bucket(): string {
+    return this.config.get('AWS_S3_BUCKET', { infer: true }) ?? 'knowledge-engine-docs';
+  }
+
+  get awsEndpointUrl(): string | undefined {
+    return this.config.get('AWS_ENDPOINT_URL', { infer: true });
+  }
+
+  /* OpenTelemetry & Tracing */
   get otelServiceName(): string {
     return this.config.get('OTEL_ATTR_SERVICE_NAME', { infer: true }) ?? 'Knowledge_Engine';
   }
@@ -50,14 +110,40 @@ export class AppConfigService {
     return this.config.get('OTEL_SAMPLING_RATIO', { infer: true }) ?? 1;
   }
 
+  /* Workers & SQS Polling */
   get workerEnabled(): boolean {
-    return this.config.get('WORKER_ENABLED', { infer: true }) ?? false;
+    return this.config.get('WORKER_ENABLED', { infer: true }) ?? true;
+  }
+
+  get embeddingWorkerEnabled(): boolean {
+    return this.config.get('EMBEDDING_WORKER_ENABLED', { infer: true }) ?? true;
   }
 
   get sqsIngestionQueueUrl(): string {
     return (
       this.config.get('SQS_INGESTION_QUEUE_URL', { infer: true }) ??
       'http://localhost:4566/000000000000/knowledge-engine-ingestion-queue'
+    );
+  }
+
+  get sqsIngestionDlqUrl(): string {
+    return (
+      this.config.get('SQS_INGESTION_DLQ_URL', { infer: true }) ??
+      'http://localhost:4566/000000000000/knowledge-engine-ingestion-dlq'
+    );
+  }
+
+  get sqsEmbeddingQueueUrl(): string {
+    return (
+      this.config.get('SQS_EMBEDDING_QUEUE_URL', { infer: true }) ??
+      'http://localhost:4566/000000000000/knowledge-engine-embedding-queue'
+    );
+  }
+
+  get sqsEmbeddingDlqUrl(): string {
+    return (
+      this.config.get('SQS_EMBEDDING_DLQ_URL', { infer: true }) ??
+      'http://localhost:4566/000000000000/knowledge-engine-embedding-dlq'
     );
   }
 
@@ -75,5 +161,57 @@ export class AppConfigService {
 
   get sqsPollerConcurrency(): number {
     return this.config.get('SQS_POLLER_CONCURRENCY', { infer: true }) ?? 1;
+  }
+
+  /* Outbox Configuration */
+  get outboxPollIntervalMs(): number {
+    return this.config.get('OUTBOX_POLL_INTERVAL_MS', { infer: true }) ?? 5000;
+  }
+
+  get outboxBatchSize(): number {
+    return this.config.get('OUTBOX_BATCH_SIZE', { infer: true }) ?? 100;
+  }
+
+  get outboxMaxRetries(): number {
+    return this.config.get('OUTBOX_MAX_RETRIES', { infer: true }) ?? 5;
+  }
+
+  /* Temp File Storage */
+  get documentTempDir(): string {
+    return this.config.get('DOCUMENT_TEMP_DIR', { infer: true }) ?? './tmp/documents';
+  }
+
+  get documentMaxSizeBytes(): number {
+    return this.config.get('DOCUMENT_MAX_SIZE_BYTES', { infer: true }) ?? 104857600;
+  }
+
+  get documentTempDiskLimitBytes(): number {
+    return this.config.get('DOCUMENT_TEMP_DISK_LIMIT_BYTES', { infer: true }) ?? 5368709120;
+  }
+
+  /* Ollama Embedding Models */
+  get ollamaBaseUrl(): string {
+    return this.config.get('OLLAMA_BASE_URL', { infer: true }) ?? 'http://localhost:11434';
+  }
+
+  get ollamaEmbeddingModel(): string {
+    return this.config.get('OLLAMA_EMBEDDING_MODEL', { infer: true }) ?? 'embeddinggemma';
+  }
+
+  get embeddingDimensions(): number {
+    return this.config.get('EMBEDDING_DIMENSIONS', { infer: true }) ?? 768;
+  }
+
+  get embeddingBatchSize(): number {
+    return this.config.get('EMBEDDING_BATCH_SIZE', { infer: true }) ?? 20;
+  }
+
+  /* Resilience & Circuit Breakers */
+  get circuitBreakerFailureThreshold(): number {
+    return this.config.get('CIRCUIT_BREAKER_FAILURE_THRESHOLD', { infer: true }) ?? 5;
+  }
+
+  get circuitBreakerResetTimeoutMs(): number {
+    return this.config.get('CIRCUIT_BREAKER_RESET_TIMEOUT_MS', { infer: true }) ?? 30000;
   }
 }

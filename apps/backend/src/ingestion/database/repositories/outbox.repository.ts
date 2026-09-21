@@ -1,13 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
-import { OutboxEventEntity } from '../entities/outbox-event.entity';
+import { IngestionOutboxEntity } from '../entities/ingestion-outbox.entity';
 
 @Injectable()
 export class OutboxRepository {
-  private readonly repository: Repository<OutboxEventEntity>;
+  private readonly repository: Repository<IngestionOutboxEntity>;
 
   constructor(private readonly dataSource: DataSource) {
-    this.repository = this.dataSource.getRepository(OutboxEventEntity);
+    this.repository = this.dataSource.getRepository(IngestionOutboxEntity);
   }
 
   /**
@@ -19,7 +19,7 @@ export class OutboxRepository {
    * - Restricts output using configurable `batchSize`.
    *
    * @param {number} [batchSize=10] - Maximum number of outbox events to retrieve
-   * @returns {Promise<OutboxEventEntity[]>} Array of pending outbox event entities
+   * @returns {Promise<IngestionOutboxEntity[]>} Array of pending outbox event entities
    * @throws {Error} Throws if database query execution fails
    *
    * @example
@@ -27,7 +27,7 @@ export class OutboxRepository {
    * const pending = await outboxRepository.fetchPendingOutboxEvents(10);
    * ```
    */
-  async fetchPendingOutboxEvents(batchSize = 10): Promise<OutboxEventEntity[]> {
+  async fetchPendingOutboxEvents(batchSize = 10): Promise<IngestionOutboxEntity[]> {
     return this.repository.find({
       where: { processed: false },
       order: { created_at: 'ASC' },
@@ -54,10 +54,28 @@ export class OutboxRepository {
     if (!eventIds || eventIds.length === 0) return;
     await this.repository
       .createQueryBuilder()
-      .update(OutboxEventEntity)
+      .update(IngestionOutboxEntity)
       .set({
         processed: true,
         processed_at: () => 'CURRENT_TIMESTAMP',
+      })
+      .where('event_id IN (:...eventIds)', { eventIds })
+      .execute();
+  }
+
+  /**
+   * Increments the retry attempt counter for specified outbox events on relay publishing failure.
+   *
+   * @param {string[]} eventIds - List of event_id strings to increment retry counter
+   * @returns {Promise<void>}
+   */
+  async incrementRetries(eventIds: string[]): Promise<void> {
+    if (!eventIds || eventIds.length === 0) return;
+    await this.repository
+      .createQueryBuilder()
+      .update(IngestionOutboxEntity)
+      .set({
+        retries: () => 'retries + 1',
       })
       .where('event_id IN (:...eventIds)', { eventIds })
       .execute();
@@ -82,7 +100,7 @@ export class OutboxRepository {
     if (!eventIds || eventIds.length === 0) return;
     await this.repository
       .createQueryBuilder()
-      .update(OutboxEventEntity)
+      .update(IngestionOutboxEntity)
       .set({
         processed: true,
         failed_at: () => 'CURRENT_TIMESTAMP',
@@ -91,3 +109,4 @@ export class OutboxRepository {
       .execute();
   }
 }
+

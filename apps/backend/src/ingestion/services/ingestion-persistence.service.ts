@@ -5,7 +5,7 @@ import {
   DocumentEntity,
   DocumentVersionEntity,
   IngestionJobEntity,
-  OutboxEventEntity,
+  IngestionOutboxEntity,
 } from '../database/entities';
 import {
   DocumentSourceType,
@@ -29,7 +29,7 @@ export interface PersistDocumentResult {
   document: DocumentEntity;
   version: DocumentVersionEntity;
   job: IngestionJobEntity;
-  outboxEvent: OutboxEventEntity;
+  outboxEvent: IngestionOutboxEntity;
 }
 
 @Injectable()
@@ -39,7 +39,7 @@ export class IngestionPersistenceService {
   constructor(private readonly dataSource: DataSource) { }
 
   /**
-   * Atomically records Document, DocumentVersion, IngestionJob, and OutboxEvent in PostgreSQL.
+   * Atomically records Document, DocumentVersion, IngestionJob, and IngestionOutboxEntity in PostgreSQL.
    *
    * @remarks
    * - Leverages database-generated UUIDs for entity identifiers.
@@ -90,18 +90,17 @@ export class IngestionPersistenceService {
       const job = manager.create(IngestionJobEntity, {
         versionId: savedVersion.id,
         status: IngestionJobStatus.PENDING,
-        stage: IngestionJobStage.AVAILABLE,
+        stage: IngestionJobStage.SOURCE_READY,
         attemptCount: 0,
       });
       const savedJob = await manager.save(IngestionJobEntity, job);
 
-      /* 4. Insert transactional outbox event */
+      /* 4. Insert transactional outbox event in ingestion_outbox table */
       const eventId = `evt_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
-      const outboxEvent = manager.create(OutboxEventEntity, {
+      const outboxEvent = manager.create(IngestionOutboxEntity, {
         event_id: eventId,
         topic: 'document.ingestion.v1',
         version: 1,
-        saga_id: savedDocument.id,
         domain: Domain.DOCUMENT,
         retries: 0,
         processed: false,
@@ -120,7 +119,7 @@ export class IngestionPersistenceService {
           originalFilename: params.originalFilename,
         },
       });
-      const savedOutbox = await manager.save(OutboxEventEntity, outboxEvent);
+      const savedOutbox = await manager.save(IngestionOutboxEntity, outboxEvent);
 
       this.logger.log('Atomically committed document and outbox event', {
         documentId: savedDocument.id,
@@ -139,3 +138,4 @@ export class IngestionPersistenceService {
     });
   }
 }
+
