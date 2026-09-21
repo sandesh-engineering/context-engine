@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { ParsedDocument, ParsedPage, ParsedBlock } from '../parsing/interfaces/document-parser.interface';
 import { DocumentChunkEntity } from '../database/entities/document-chunk.entity';
 import { IDocumentChunker } from './interfaces/document-chunker.interface';
@@ -15,7 +15,7 @@ export class StructureAwareChunker implements IDocumentChunker {
   private readonly maxChunkChars: number;
   private readonly chunkOverlapChars: number;
 
-  constructor(options?: ChunkerOptions) {
+  constructor(@Optional() options?: ChunkerOptions) {
     this.maxChunkChars = options?.maxChunkChars ?? 1500;
     this.chunkOverlapChars = options?.chunkOverlapChars ?? 150;
   }

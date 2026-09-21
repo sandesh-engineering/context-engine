@@ -2,6 +2,7 @@ import {
   Injectable,
   Inject,
   Logger,
+  Optional,
   OnModuleInit,
   OnModuleDestroy,
 } from '@nestjs/common';
@@ -60,7 +61,7 @@ export class SqsEmbeddingPollerService implements OnModuleInit, OnModuleDestroy 
     private readonly chunksRepository: DocumentChunksRepository,
     @Inject(EMBEDDING_PROVIDER)
     private readonly embeddingProvider: IEmbeddingProvider,
-    options?: SqsEmbeddingPollerOptions,
+    @Optional() options?: SqsEmbeddingPollerOptions,
   ) {
     this.queueUrl =
       options?.queueUrl ||
@@ -81,13 +82,18 @@ export class SqsEmbeddingPollerService implements OnModuleInit, OnModuleDestroy 
 
     const awsRegion = this.configService.get<string>('AWS_REGION') || 'us-east-1';
     const endpoint = this.configService.get<string>('AWS_ENDPOINT_URL');
+    const accessKeyId = this.configService.get<string>('AWS_ACCESS_KEY_ID');
+    const secretAccessKey = this.configService.get<string>('AWS_SECRET_ACCESS_KEY');
 
-    this.sqsClient =
-      options?.sqsClient ||
-      new SQSClient({
-        region: awsRegion,
-        ...(endpoint ? { endpoint } : {}),
-      });
+    const sqsOptions: any = { region: awsRegion };
+    if (endpoint) {
+      sqsOptions.endpoint = endpoint;
+    }
+    if (accessKeyId && secretAccessKey) {
+      sqsOptions.credentials = { accessKeyId, secretAccessKey };
+    }
+
+    this.sqsClient = options?.sqsClient || new SQSClient(sqsOptions);
   }
 
   onModuleInit(): void {

@@ -59,7 +59,10 @@ export class IngestionJobsRepository {
       })
       .execute();
 
-    const job = await this.repository.findOne({ where: { id: jobId } });
+    const job = await this.repository.findOne({
+      where: { id: jobId },
+      relations: ['version'],
+    });
 
     if (result.affected && result.affected > 0) {
       return { claimed: true, job };
@@ -69,7 +72,7 @@ export class IngestionJobsRepository {
   }
 
   /**
-   * Retrieves an ingestion job entity by its primary UUID key.
+   * Retrieves an ingestion job entity by its primary UUID key with version relation loaded.
    *
    * @param {string} jobId - Primary key of ingestion job
    * @returns {Promise<IngestionJobEntity | null>} Ingestion job entity or null if not found
@@ -81,9 +84,11 @@ export class IngestionJobsRepository {
    * ```
    */
   async findJobById(jobId: string): Promise<IngestionJobEntity | null> {
-    return this.repository.findOne({ where: { id: jobId } });
+    return this.repository.findOne({
+      where: { id: jobId },
+      relations: ['version'],
+    });
   }
-
   /**
    * Updates an ingestion job status to COMPLETED and sets final pipeline stage to INDEXING.
    *

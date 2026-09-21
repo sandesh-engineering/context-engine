@@ -4,6 +4,7 @@ import {
   Logger,
   OnModuleInit,
   OnModuleDestroy,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -46,7 +47,7 @@ export class IngestionOutboxPollerService implements OnModuleInit, OnModuleDestr
     messagePublisher: IMessagePublisher,
     private readonly outboxRepository: OutboxRepository,
     private readonly configService: ConfigService,
-    options?: IngestionOutboxPollerOptions,
+    @Optional() options?: IngestionOutboxPollerOptions,
   ) {
     this.messagePublisher = messagePublisher;
     this.batchSize =

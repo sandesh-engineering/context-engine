@@ -15,6 +15,7 @@ import {
 import { OBJECT_STORAGE_SERVICE } from './storage/interfaces/object-storage.interface';
 import { S3StorageAdapter } from './storage/adapters/s3-storage.adapter';
 
+import { S3Client } from '@aws-sdk/client-s3';
 import { OutboxRepository, EmbeddingOutboxRepository, IngestionJobsRepository } from './database/repositories';
 import { MESSAGE_PUBLISHER } from './messaging/interfaces/message-publisher.interface';
 import { SqsMessagePublisher } from './messaging/publishers/sqs-message.publisher';
@@ -54,10 +55,27 @@ import { AppConfigService } from '../config/app-config.service';
     },
     {
       provide: OBJECT_STORAGE_SERVICE,
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        const bucketName = configService.get<string>('AWS_S3_BUCKET') || 'knowledge-engine-docs';
-        return new S3StorageAdapter({ bucketName });
+      inject: [AppConfigService],
+      useFactory: (appConfig: AppConfigService) => {
+        const bucketName = appConfig.awsS3Bucket;
+        const region = appConfig.awsRegion;
+        const endpoint = appConfig.awsEndpointUrl;
+        const accessKeyId = appConfig.awsAccessKeyId;
+        const secretAccessKey = appConfig.awsSecretAccessKey;
+
+        const s3Options: any = { region };
+        if (endpoint) {
+          s3Options.endpoint = endpoint;
+          s3Options.forcePathStyle = true;
+        }
+        if (accessKeyId && secretAccessKey) {
+          s3Options.credentials = { accessKeyId, secretAccessKey };
+        }
+
+        return new S3StorageAdapter({
+          bucketName,
+          client: new S3Client(s3Options),
+        });
       },
     },
     {

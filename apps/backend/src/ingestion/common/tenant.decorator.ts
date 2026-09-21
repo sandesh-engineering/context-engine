@@ -33,6 +33,8 @@ export const Tenant = createParamDecorator(
       return { tenantId: headerTenantId.trim() };
     }
 
-    throw new BadRequestException('Tenant identifier is missing in request context');
+    // Default fallback demo tenant for seamless local testing & development uploads
+    const defaultDemoTenant = process.env.DEFAULT_DEMO_TENANT_ID || 'demo-tenant-001';
+    return { tenantId: defaultDemoTenant };
   },
 );

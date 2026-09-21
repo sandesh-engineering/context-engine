@@ -4,6 +4,7 @@ import {
   Logger,
   OnModuleInit,
   OnModuleDestroy,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AppConfigService } from '../../../config/app-config.service';
@@ -48,7 +49,7 @@ export class EmbeddingOutboxPollerService implements OnModuleInit, OnModuleDestr
     private readonly embeddingOutboxRepository: EmbeddingOutboxRepository,
     private readonly configService: ConfigService,
     private readonly appConfig: AppConfigService,
-    options?: EmbeddingOutboxPollerOptions,
+    @Optional() options?: EmbeddingOutboxPollerOptions,
   ) {
     /* If provided publisher is primary SQS publisher, instantiate dedicated publisher for SQS embedding queue */
     const embeddingQueueUrl = this.appConfig.sqsEmbeddingQueueUrl;

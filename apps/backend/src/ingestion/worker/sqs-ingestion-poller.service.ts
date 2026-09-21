@@ -1,6 +1,7 @@
 import {
   Injectable,
   Logger,
+  Optional,
   OnModuleInit,
   OnModuleDestroy,
 } from '@nestjs/common';
@@ -63,7 +64,7 @@ export class SqsIngestionPollerService implements OnModuleInit, OnModuleDestroy 
     private readonly appConfig: AppConfigService,
     private readonly configService: ConfigService,
     private readonly jobsRepository: IngestionJobsRepository,
-    options?: SqsIngestionPollerOptions,
+    @Optional() options?: SqsIngestionPollerOptions,
   ) {
     this.pipelineExecutor = options?.pipelineExecutor;
     this.queueUrl =
@@ -85,13 +86,18 @@ export class SqsIngestionPollerService implements OnModuleInit, OnModuleDestroy 
 
     const awsRegion = this.configService.get<string>('AWS_REGION') || 'us-east-1';
     const endpoint = this.configService.get<string>('AWS_ENDPOINT_URL');
+    const accessKeyId = this.configService.get<string>('AWS_ACCESS_KEY_ID');
+    const secretAccessKey = this.configService.get<string>('AWS_SECRET_ACCESS_KEY');
 
-    this.sqsClient =
-      options?.sqsClient ||
-      new SQSClient({
-        region: awsRegion,
-        ...(endpoint ? { endpoint } : {}),
-      });
+    const sqsOptions: any = { region: awsRegion };
+    if (endpoint) {
+      sqsOptions.endpoint = endpoint;
+    }
+    if (accessKeyId && secretAccessKey) {
+      sqsOptions.credentials = { accessKeyId, secretAccessKey };
+    }
+
+    this.sqsClient = options?.sqsClient || new SQSClient(sqsOptions);
   }
 
   /**

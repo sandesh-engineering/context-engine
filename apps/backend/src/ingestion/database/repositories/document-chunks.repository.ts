@@ -141,7 +141,7 @@ export class DocumentChunksRepository {
       const embeddingParam = `$${params.length + 1}`;
       params.push(JSON.stringify(embedding));
 
-      values.push(`(${idParam}, ${embeddingParam}::vector)`);
+      values.push(`(${idParam}::uuid, ${embeddingParam}::vector)`);
     }
 
     const sql = `

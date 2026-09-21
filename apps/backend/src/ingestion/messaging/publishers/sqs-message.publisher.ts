@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   SQSClient,
@@ -31,7 +31,7 @@ export class SqsMessagePublisher implements IMessagePublisher {
 
   constructor(
     private readonly configService: ConfigService,
-    options?: SqsPublisherOptions,
+    @Optional() options?: SqsPublisherOptions,
   ) {
     this.queueUrl =
       options?.queueUrl ||
@@ -45,13 +45,18 @@ export class SqsMessagePublisher implements IMessagePublisher {
 
     const awsRegion = this.configService.get<string>('AWS_REGION') || 'us-east-1';
     const endpoint = this.configService.get<string>('AWS_ENDPOINT_URL');
+    const accessKeyId = this.configService.get<string>('AWS_ACCESS_KEY_ID');
+    const secretAccessKey = this.configService.get<string>('AWS_SECRET_ACCESS_KEY');
 
-    this.sqsClient =
-      options?.client ||
-      new SQSClient({
-        region: awsRegion,
-        ...(endpoint ? { endpoint } : {}),
-      });
+    const sqsOptions: any = { region: awsRegion };
+    if (endpoint) {
+      sqsOptions.endpoint = endpoint;
+    }
+    if (accessKeyId && secretAccessKey) {
+      sqsOptions.credentials = { accessKeyId, secretAccessKey };
+    }
+
+    this.sqsClient = options?.client || new SQSClient(sqsOptions);
 
     this.retryPolicy = options?.retryPolicy || new RetryPolicy({ maxAttempts: 3 });
   }

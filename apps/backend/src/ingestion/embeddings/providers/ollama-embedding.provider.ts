@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { AppConfigService } from '../../../config/app-config.service';
 import {
   IEmbeddingProvider,
@@ -27,7 +27,7 @@ export class OllamaEmbeddingProvider implements IEmbeddingProvider {
 
   constructor(
     private readonly appConfig: AppConfigService,
-    options?: OllamaProviderOptions,
+    @Optional() options?: OllamaProviderOptions,
   ) {
     this.baseUrl =
       options?.baseUrl ||
