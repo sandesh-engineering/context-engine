@@ -8,6 +8,10 @@ import {
   EmbeddingOutboxEntity,
   DocumentChunkEntity,
 } from '../ingestion/database/entities';
+import {
+  ConversationEntity,
+  MessageEntity,
+} from '../chat/entities';
 
 dotenv.config({ path: `.env.${process.env.NODE_ENV || 'development'}` });
 
@@ -27,6 +31,8 @@ export const dataSourceOptions: DataSourceOptions = {
     IngestionOutboxEntity,
     EmbeddingOutboxEntity,
     DocumentChunkEntity,
+    ConversationEntity,
+    MessageEntity,
   ],
   migrations: [__dirname + '/migrations/*{.ts,.js}'],
   subscribers: [],
