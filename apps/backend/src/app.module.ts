@@ -9,6 +9,8 @@ import { dataSourceOptions } from './database/data-source';
 
 import { IngestionModule } from './ingestion/ingestion.module';
 import { IngestionWorkerModule } from './ingestion/worker/ingestion-worker.module';
+import { RetrievalModule } from './retrieval/retrieval.module';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
@@ -20,6 +22,8 @@ import { IngestionWorkerModule } from './ingestion/worker/ingestion-worker.modul
     TypeOrmModule.forRoot(dataSourceOptions),
     IngestionModule,
     IngestionWorkerModule,
+    RetrievalModule,
+    ChatModule,
   ],
   controllers: [AppController],
   providers: [AppService, AppConfigService],
