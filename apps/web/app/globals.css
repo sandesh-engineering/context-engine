@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@source "../../../packages/ui";
+@source "../..";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -8,12 +10,6 @@ html,
 body {
   max-width: 100vw;
   overflow-x: hidden;
-}
-
-* {
-  box-sizing: border-box;
-  padding: 0;
-  margin: 0;
 }
 
 a {

@@ -10,7 +10,7 @@ const config: Config = {
   testRegex: '.*\\.spec\\.ts$',
 
   transform: {
-    '^.+\\.(t|j)s$': [
+    '^.+\\.[tj]sx?$': [
       'ts-jest',
       {
         tsconfig: '<rootDir>/tsconfig.test.json',

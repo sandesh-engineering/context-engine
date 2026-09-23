@@ -68,7 +68,7 @@ describe('Storage Adapters Tests', () => {
             return { ETag: '"etag-part-1"' };
           }
           if (command.constructor.name === 'CompleteMultipartUploadCommand') {
-            return { Key: 'key1', ETag: '"final-etag"' };
+            return { Key: 'test-key', ETag: '"final-etag"' };
           }
           return {};
         }),
