@@ -101,6 +101,11 @@ export const envSchema = z.object({
   EMBEDDING_DIMENSIONS: z.coerce.number().default(768),
   EMBEDDING_BATCH_SIZE: z.coerce.number().default(20),
 
+  /* Google Gemini API & Models */
+  GEMINI_API_KEY: z.string().optional(),
+  GEMINI_CHAT_MODEL: z.string().default('gemini-2.5-flash'),
+  GEMINI_EMBEDDING_MODEL: z.string().default('text-embedding-004'),
+
   /* Resilience & Circuit Breaker */
   CIRCUIT_BREAKER_FAILURE_THRESHOLD: z.coerce.number().default(5),
   CIRCUIT_BREAKER_RESET_TIMEOUT_MS: z.coerce.number().default(30000),

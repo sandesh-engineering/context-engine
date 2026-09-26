@@ -1,7 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
 import { NotFoundException, MessageEvent } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
+import { DataSource } from 'typeorm';
+
+const getRepositoryToken = (entity: any) =>
+  typeof entity === 'function' ? `${entity.name}Repository` : `${entity}Repository`;
 import { ChatService } from '../services/chat.service';
 import { ChatContextAssembler } from '../services/chat-context-assembler.service';
 import { ConversationEntity } from '../entities/conversation.entity';
@@ -47,12 +50,19 @@ describe('ChatService', () => {
       generateStream: jest.fn(),
     };
 
+    const mockDataSource = {
+      getRepository: jest.fn((entity) => {
+        if (entity === ConversationEntity) return convRepo;
+        if (entity === MessageEntity) return msgRepo;
+        return {};
+      }),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ChatService,
-        ChatContextAssembler,
-        { provide: getRepositoryToken(ConversationEntity), useValue: convRepo },
-        { provide: getRepositoryToken(MessageEntity), useValue: msgRepo },
+        { provide: ChatContextAssembler, useValue: contextAssembler },
+        { provide: DataSource, useValue: mockDataSource },
         { provide: RetrievalService, useValue: retrievalService },
         { provide: LLM_PROVIDER, useValue: llmProvider },
       ],

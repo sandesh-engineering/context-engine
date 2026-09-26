@@ -1,26 +1,24 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("Document Upload Interface", () => {
-  test("switches between PDF Upload and URL Import tabs", async ({ page }) => {
-    await page.goto("/upload");
+  test("loads PDF upload page with dropzone and history table", async ({ page }) => {
+    await page.goto("/upload/file");
 
-    await expect(page.getByText("Direct PDF Upload").first()).toBeVisible();
+    await expect(page.getByText("PDF Document Upload")).toBeVisible();
+    await expect(page.getByText("PDF Ingestion Jobs & History")).toBeVisible();
+  });
 
-    // Switch to URL import tab
-    const urlTab = page.getByTestId("tab-url-import");
-    await urlTab.click();
-    await expect(page.getByText("Public URL Ingestion").first()).toBeVisible();
+  test("loads URL import page with input form and history table", async ({ page }) => {
+    await page.goto("/upload/url");
 
-    // Switch back to File upload tab
-    const fileTab = page.getByTestId("tab-file-upload");
-    await fileTab.click();
-    await expect(page.getByText("Direct PDF Upload").first()).toBeVisible();
+    await expect(page.getByText("Public Resource URL Import")).toBeVisible();
+    await expect(page.getByText("URL Import Jobs & History")).toBeVisible();
   });
 
   test("validates non-PDF file upload rejection in dropzone", async ({
     page,
   }) => {
-    await page.goto("/upload");
+    await page.goto("/upload/file");
 
     const fileChooserInput = page.getByTestId("file-dropzone-input");
     await fileChooserInput.setInputFiles({
@@ -30,14 +28,14 @@ test.describe("Document Upload Interface", () => {
     });
 
     await expect(
-      page.getByText(/Invalid file format. Only PDF files are allowed./i)
+      page.getByText(/Invalid file format. Only PDF files are supported./i)
     ).toBeVisible();
   });
 
   test("validates PDF file selection and enables upload button", async ({
     page,
   }) => {
-    await page.goto("/upload");
+    await page.goto("/upload/file");
 
     const fileChooserInput = page.getByTestId("file-dropzone-input");
     await fileChooserInput.setInputFiles({
@@ -54,10 +52,7 @@ test.describe("Document Upload Interface", () => {
   test("validates URL input and displays job confirmation on submit", async ({
     page,
   }) => {
-    await page.goto("/upload");
-
-    // Switch to URL import tab
-    await page.getByTestId("tab-url-import").click();
+    await page.goto("/upload/url");
 
     const urlInput = page.getByTestId("url-import-input");
     await urlInput.fill("https://example.com/research-paper.pdf");

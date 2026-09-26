@@ -18,12 +18,14 @@ describe('OutboxPollerService Unit Tests', () => {
       fetchPendingOutboxEvents: jest.fn(),
       markEventsProcessed: jest.fn(),
       markEventsFailedDlq: jest.fn(),
+      incrementRetries: jest.fn(),
     };
 
     mockConfigService = {
       get: jest.fn().mockImplementation((key: string) => {
         if (key === 'OUTBOX_POLL_BATCH_SIZE') return 10;
         if (key === 'OUTBOX_POLL_INTERVAL_MS') return 1000;
+        if (key === 'OUTBOX_MAX_RETRIES') return 3;
         if (key === 'OUTBOX_POLLER_ENABLED') return 'false';
         return undefined;
       }),
@@ -82,6 +84,7 @@ describe('OutboxPollerService Unit Tests', () => {
         topic: 'document.ingestion.v1',
         payload: { jobId: 'job-fail' },
         created_at: new Date(),
+        retries: 2, // 2 + 1 >= 3 (maxRetries)
       },
     ];
 

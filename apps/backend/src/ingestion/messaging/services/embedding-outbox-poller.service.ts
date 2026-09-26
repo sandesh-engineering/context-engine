@@ -1,7 +1,6 @@
 import {
   Injectable,
   Inject,
-  Logger,
   OnModuleInit,
   OnModuleDestroy,
   Optional,
@@ -15,6 +14,7 @@ import {
 } from '../interfaces/message-publisher.interface';
 import { EmbeddingOutboxRepository } from '../../database/repositories/embedding-outbox.repository';
 import { SqsMessagePublisher } from '../publishers/sqs-message.publisher';
+import { StructuredLogger, LogEvents } from '../../../common/logger';
 
 export interface EmbeddingPollerBatchResult {
   polledCount: number;
@@ -35,7 +35,7 @@ export interface EmbeddingOutboxPollerOptions {
  */
 @Injectable()
 export class EmbeddingOutboxPollerService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(EmbeddingOutboxPollerService.name);
+  private readonly logger = new StructuredLogger(EmbeddingOutboxPollerService.name);
   private readonly batchSize: number;
   private readonly pollIntervalMs: number;
   private readonly maxRetries: number;
@@ -84,15 +84,13 @@ export class EmbeddingOutboxPollerService implements OnModuleInit, OnModuleDestr
 
   startPolling(): void {
     if (this.timerHandle) return;
-    this.logger.log('Starting Embedding Outbox Poller background loop', {
+    this.logger.logEvent(LogEvents.OUTBOX_POLL_STARTED, {
       batchSize: this.batchSize,
-      intervalMs: this.pollIntervalMs,
+      pollIntervalMs: this.pollIntervalMs,
     });
     this.timerHandle = setInterval(() => {
       this.pollAndPublishBatch().catch((err) => {
-        this.logger.error('Unhandled error in Embedding Outbox Poller iteration', {
-          error: err instanceof Error ? err.message : String(err),
-        });
+        this.logger.logError('outbox.embedding_poll.failed', err);
       });
     }, this.pollIntervalMs);
   }
@@ -101,7 +99,7 @@ export class EmbeddingOutboxPollerService implements OnModuleInit, OnModuleDestr
     if (this.timerHandle) {
       clearInterval(this.timerHandle);
       this.timerHandle = undefined;
-      this.logger.log('Stopped Embedding Outbox Poller background loop');
+      this.logger.logEvent('outbox.embedding_poll.stopped');
     }
   }
 
@@ -127,7 +125,7 @@ export class EmbeddingOutboxPollerService implements OnModuleInit, OnModuleDestr
         return { polledCount: 0, publishedCount: 0, dlqCount: 0, failedCount: 0 };
       }
 
-      this.logger.log('Polled pending embedding outbox events', { batchSize: polledCount });
+      this.logger.debugEvent(LogEvents.OUTBOX_POLL_STARTED, { batchSize: polledCount });
 
       const messages: OutboxMessagePayload[] = pendingEvents.map((evt) => ({
         eventId: evt.event_id,
@@ -136,6 +134,9 @@ export class EmbeddingOutboxPollerService implements OnModuleInit, OnModuleDestr
           ? new Date(evt.created_at).toISOString()
           : new Date().toISOString(),
         traceId: (evt.metadata?.traceId as string) || undefined,
+        traceparent: (evt.metadata?.traceparent as string) || undefined,
+        tracestate: (evt.metadata?.tracestate as string) || undefined,
+        metadata: evt.metadata || undefined,
         payload: evt.payload || {},
       }));
 

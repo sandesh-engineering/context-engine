@@ -1,14 +1,12 @@
 import {
   Injectable,
   Inject,
-  Logger,
   InternalServerErrorException,
   BadRequestException,
   PayloadTooLargeException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Readable, Transform } from 'stream';
-import { fileTypeStream } from 'file-type';
 import type {
   IObjectStorageService,
   StreamUploadResult,
@@ -19,6 +17,8 @@ import {
 import { IngestionPersistenceService } from './services/ingestion-persistence.service';
 import { StoragePathBuilder } from './services/storage-path-builder.service';
 import { IngestionJobStatus, IngestionJobStage } from './common/enums';
+import { AppTracer, SemanticAttributes } from '../common/telemetry';
+import { StructuredLogger, LogEvents } from '../common/logger';
 
 export interface DocumentUploadStreamParams {
   stream: Readable;
@@ -43,7 +43,7 @@ export interface DocumentUploadResponse {
 
 @Injectable()
 export class IngestionService {
-  private readonly logger = new Logger(IngestionService.name);
+  private readonly logger = new StructuredLogger(IngestionService.name);
   private readonly maxFileSizeBytes: number;
 
   constructor(
@@ -86,75 +86,98 @@ export class IngestionService {
   async uploadDocument(
     params: DocumentUploadStreamParams,
   ): Promise<DocumentUploadResponse> {
-    this.validateUploadParameters(params);
-
-    const tempDocId = `doc_${Date.now()}`;
-    const tempVerId = `ver_${Date.now()}`;
-    const storageKey = this.pathBuilder.buildRawDocumentKey(
-      params.tenantId,
-      tempDocId,
-      tempVerId,
-    );
-
-    this.logger.log('Starting document upload intake', {
-      title: params.title,
-      originalFilename: params.originalFilename,
-      storageKey,
-      traceId: params.traceId,
-    });
-
-    /* Step 1: Validate stream headers and wrap in counting stream */
-    const validatedResult = await this.validateStream(params.stream, params.maxSizeBytes);
-
-    /* Step 2: Stream bytes to resilient object storage */
-    const uploadResult = await this.stageToStorage(
-      storageKey,
-      validatedResult.stream,
-      params,
-    );
-
-    /* Step 3: Atomically commit Document, Version, IngestionJob, Outbox in DB */
-    try {
-      const persisted = await this.persistenceService.persistUploadedDocument({
-        tenantId: params.tenantId,
-        title: params.title,
-        storageKey,
-        sha256Digest: uploadResult.sha256Digest,
-        byteSize: uploadResult.byteSize,
-        originalFilename: params.originalFilename,
-        mimeType: validatedResult.mimeType,
-        metadata: {
-          traceId: params.traceId,
-          source: 'direct_upload',
+    return AppTracer.traceSpan(
+      'document.create',
+      {
+        attributes: {
+          [SemanticAttributes.KE_TENANT_ID]: params.tenantId,
+          'document.title': params.title,
+          'document.filename': params.originalFilename,
         },
-      });
+      },
+      async (span) => {
+        this.validateUploadParameters(params);
 
-      this.logger.log('Document ingestion intake completed successfully', {
-        documentId: persisted.document.id,
-        versionId: persisted.version.id,
-        jobId: persisted.job.id,
-        storageKey,
-        traceId: params.traceId,
-      });
+        const tempDocId = `doc_${Date.now()}`;
+        const tempVerId = `ver_${Date.now()}`;
+        const storageKey = this.pathBuilder.buildRawDocumentKey(
+          params.tenantId,
+          tempDocId,
+          tempVerId,
+        );
 
-      return {
-        documentId: persisted.document.id,
-        versionId: persisted.version.id,
-        jobId: persisted.job.id,
-        status: persisted.job.status,
-        stage: persisted.job.stage,
-        storageKey,
-        sha256Digest: uploadResult.sha256Digest,
-        byteSize: uploadResult.byteSize,
-        createdAt: persisted.document.createdAt,
-      };
-    } catch (dbError) {
-      /* Step 4: Consistency Handling - Execute compensating storage deletion on DB failure */
-      await this.compensateStorageRollback(storageKey, params.traceId, dbError);
-      throw new InternalServerErrorException(
-        'Failed to record document metadata after storage staging',
-      );
-    }
+        this.logger.logEvent(LogEvents.INGESTION_INTAKE_STARTED, {
+          title: params.title,
+          originalFilename: params.originalFilename,
+          storageKey,
+          tenantId: params.tenantId,
+          traceId: params.traceId,
+        });
+
+        /* Step 1: Validate stream headers and wrap in counting stream */
+        const validatedResult = await this.validateStream(params.stream, params.maxSizeBytes);
+
+        /* Step 2: Stream bytes to resilient object storage */
+        const uploadResult = await this.stageToStorage(
+          storageKey,
+          validatedResult.stream,
+          params,
+        );
+
+        /* Step 3: Atomically commit Document, Version, IngestionJob, Outbox in DB */
+        try {
+          const persisted = await this.persistenceService.persistUploadedDocument({
+            tenantId: params.tenantId,
+            title: params.title,
+            storageKey,
+            sha256Digest: uploadResult.sha256Digest,
+            byteSize: uploadResult.byteSize,
+            originalFilename: params.originalFilename,
+            mimeType: validatedResult.mimeType,
+            metadata: {
+              traceId: params.traceId,
+              source: 'direct_upload',
+            },
+          });
+
+          span.setAttribute(SemanticAttributes.KE_JOB_ID, persisted.job.id);
+          span.setAttribute(SemanticAttributes.KE_DOCUMENT_ID, persisted.document.id);
+          span.setAttribute(SemanticAttributes.KE_VERSION_ID, persisted.version.id);
+
+          this.logger.logEvent(LogEvents.INGESTION_INTAKE_COMPLETED, {
+            documentId: persisted.document.id,
+            versionId: persisted.version.id,
+            jobId: persisted.job.id,
+            storageKey,
+            tenantId: params.tenantId,
+            traceId: params.traceId,
+          });
+
+          return {
+            documentId: persisted.document.id,
+            versionId: persisted.version.id,
+            jobId: persisted.job.id,
+            status: persisted.job.status,
+            stage: persisted.job.stage,
+            storageKey,
+            sha256Digest: uploadResult.sha256Digest,
+            byteSize: uploadResult.byteSize,
+            createdAt: persisted.document.createdAt,
+          };
+        } catch (dbError) {
+          /* Step 4: Consistency Handling - Execute compensating storage deletion on DB failure */
+          this.logger.logError(LogEvents.INGESTION_INTAKE_FAILED, dbError, {
+            storageKey,
+            tenantId: params.tenantId,
+            traceId: params.traceId,
+          });
+          await this.compensateStorageRollback(storageKey, params.traceId, dbError);
+          throw new InternalServerErrorException(
+            'Failed to record document metadata after storage staging',
+          );
+        }
+      },
+    );
   }
 
   /**
@@ -183,7 +206,8 @@ export class IngestionService {
 
     let fts;
     try {
-      fts = await fileTypeStream(Readable.toWeb(stream));
+      const fileTypeModule = await (eval('import("file-type")') as Promise<typeof import('file-type')>);
+      fts = await fileTypeModule.fileTypeStream(Readable.toWeb(stream));
     } catch (err: any) {
       stream.destroy();
       throw err;
