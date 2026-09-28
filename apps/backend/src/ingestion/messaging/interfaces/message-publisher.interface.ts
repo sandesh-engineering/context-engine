@@ -3,6 +3,9 @@ export interface OutboxMessagePayload {
   eventType: string;
   timestamp: string;
   traceId?: string;
+  traceparent?: string;
+  tracestate?: string;
+  metadata?: Record<string, unknown>;
   payload: Record<string, any>;
 }
 

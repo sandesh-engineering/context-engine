@@ -19,7 +19,7 @@ export class ErrorClassifier {
       err.statusCode ||
       err.response?.status;
     const errorCode: string = String(
-      err.name || err.code || err.Code || '',
+      err.code || err.Code || err.name || '',
     ).toUpperCase();
     const message: string = String(err.message || '').toUpperCase();
 
@@ -27,6 +27,8 @@ export class ErrorClassifier {
     if (
       errorCode.includes('PAYLOADTOOLARGE') ||
       errorCode.includes('MAX_SIZE') ||
+      message.includes('PAYLOAD TOO LARGE') ||
+      message.includes('LIMIT EXCEEDED') ||
       statusCode === 413
     ) {
       return 'RESOURCE_LIMIT';
@@ -71,7 +73,7 @@ export class ErrorClassifier {
       'INTERNALERROR',
     ];
 
-    if (transientCodes.some((code) => errorCode.includes(code))) {
+    if (transientCodes.some((code) => errorCode.includes(code) || message.includes(code))) {
       return 'TRANSIENT';
     }
 

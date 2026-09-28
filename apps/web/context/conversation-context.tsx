@@ -16,9 +16,10 @@ interface ConversationContextType {
   isSending: boolean;
   error: string | null;
   createNewConversation: (title?: string) => Promise<Conversation>;
-  sendMessage: (text: string) => Promise<void>;
+  sendMessage: (text: string, targetConvId?: string) => Promise<string | undefined>;
   loadMore: () => Promise<void>;
   refreshConversations: () => Promise<void>;
+  selectConversation: (convId: string) => Promise<void>;
 }
 
 const ConversationContext = React.createContext<
@@ -45,6 +46,9 @@ export function ConversationProvider({
   const [isSending, setIsSending] = React.useState<boolean>(false);
   const [error, setError] = React.useState<string | null>(null);
 
+  // Track conversation currently being seeded optimistically
+  const optimisticConvIdRef = React.useRef<string | null>(null);
+
   // Fetch all conversations for tenant
   const fetchConversations = React.useCallback(async () => {
     try {
@@ -52,9 +56,6 @@ export function ConversationProvider({
       setError(null);
       const res = await api.conversations.getConversations();
       setConversations(res);
-      if (res.length > 0) {
-        setActiveConversationId((prev) => prev ?? res[0]?.id ?? null);
-      }
     } catch (err: unknown) {
       console.warn("Could not reach backend conversations API, using offline fallback:", err);
       setConversations([]);
@@ -63,8 +64,9 @@ export function ConversationProvider({
     }
   }, []);
 
-  // Load initial batch of messages for active conversation
-  const loadMessages = React.useCallback(async (convId: string) => {
+  // Explicitly select and load messages for a conversation
+  const selectConversation = React.useCallback(async (convId: string) => {
+    setActiveConversationId(convId);
     try {
       setIsLoadingMessages(true);
       setError(null);
@@ -76,6 +78,7 @@ export function ConversationProvider({
       console.warn("Could not load messages from API:", err);
       setMessages([]);
       setHasMore(false);
+      setNextCursor(null);
     } finally {
       setIsLoadingMessages(false);
     }
@@ -108,22 +111,12 @@ export function ConversationProvider({
     fetchConversations();
   }, [fetchConversations]);
 
-  React.useEffect(() => {
-    if (activeConversationId) {
-      loadMessages(activeConversationId);
-    } else {
-      setMessages([]);
-      setHasMore(false);
-      setNextCursor(null);
-    }
-  }, [activeConversationId, loadMessages]);
-
   const createNewConversation = React.useCallback(
     async (title: string = "New Chat") => {
       try {
         setError(null);
         const newConv = await api.conversations.createConversation(title);
-        setConversations((prev) => [newConv, ...prev]);
+        setConversations((prev) => [newConv, ...prev.filter((c) => c.id !== newConv.id)]);
         setActiveConversationId(newConv.id);
         setMessages([]);
         setHasMore(false);
@@ -148,16 +141,22 @@ export function ConversationProvider({
   );
 
   const sendMessage = React.useCallback(
-    async (text: string) => {
+    async (text: string, targetConvId?: string) => {
       const trimmed = text.trim();
       if (!trimmed || isSending) return;
 
-      let convId = activeConversationId;
+      let convId = targetConvId || activeConversationId;
+      let isNewlyCreated = false;
+
       if (!convId) {
-        const title = trimmed.slice(0, 28) + (trimmed.length > 28 ? "..." : "");
+        const title = trimmed.slice(0, 30) + (trimmed.length > 30 ? "..." : "");
         const newConv = await createNewConversation(title);
         convId = newConv.id;
+        isNewlyCreated = true;
       }
+
+      optimisticConvIdRef.current = convId;
+      setActiveConversationId(convId);
 
       const userMessageId = `user-${Date.now()}`;
       const assistantMessageId = `asst-${Date.now()}`;
@@ -178,7 +177,8 @@ export function ConversationProvider({
         createdAt: new Date().toISOString(),
       };
 
-      setMessages((prev) => [...prev, userMessage, assistantMessagePlaceholder]);
+      // Set optimistic messages immediately into state
+      setMessages((prev) => (isNewlyCreated ? [userMessage, assistantMessagePlaceholder] : [...prev, userMessage, assistantMessagePlaceholder]));
       setIsSending(true);
       setError(null);
 
@@ -212,7 +212,10 @@ export function ConversationProvider({
         );
       } finally {
         setIsSending(false);
+        optimisticConvIdRef.current = null;
       }
+
+      return convId;
     },
     [activeConversationId, createNewConversation, isSending]
   );
@@ -234,6 +237,7 @@ export function ConversationProvider({
         sendMessage,
         loadMore,
         refreshConversations: fetchConversations,
+        selectConversation,
       }}
     >
       {children}

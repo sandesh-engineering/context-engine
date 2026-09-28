@@ -5,7 +5,7 @@ export interface ApiClientConfig {
   headers?: Record<string, string>;
 }
 
-export type IngestionStatus = 'PENDING' | 'AVAILABLE' | 'FAILED' | 'PROCESSING';
+export type IngestionStatus = 'PENDING' | 'AVAILABLE' | 'FAILED' | 'PROCESSING' | 'CANCELLED' | 'RUNNING';
 
 export interface IngestionJob {
   id: string;

@@ -7,6 +7,7 @@ import { ChatContextAssembler } from './services/chat-context-assembler.service'
 import { ChatService } from './services/chat.service';
 import { ChatController } from './chat.controller';
 import { OllamaLlmProvider } from './providers/ollama-llm.provider';
+import { GeminiLlmProvider } from './providers/gemini-llm.provider';
 import { LLM_PROVIDER } from './interfaces/llm-provider.interface';
 import { AppConfigService } from '../config/app-config.service';
 
@@ -22,6 +23,7 @@ import { AppConfigService } from '../config/app-config.service';
     ChatContextAssembler,
     ChatService,
     OllamaLlmProvider,
+    GeminiLlmProvider,
     {
       provide: LLM_PROVIDER,
       useClass: OllamaLlmProvider,
@@ -30,6 +32,8 @@ import { AppConfigService } from '../config/app-config.service';
   exports: [
     ChatService,
     ChatContextAssembler,
+    OllamaLlmProvider,
+    GeminiLlmProvider,
     LLM_PROVIDER,
   ],
 })

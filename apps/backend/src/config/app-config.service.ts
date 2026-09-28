@@ -224,6 +224,19 @@ export class AppConfigService {
     return this.config.get('EMBEDDING_BATCH_SIZE', { infer: true }) ?? 20;
   }
 
+  /* Google Gemini API & Models */
+  get geminiApiKey(): string | undefined {
+    return this.config.get('GEMINI_API_KEY', { infer: true });
+  }
+
+  get geminiChatModel(): string {
+    return this.config.get('GEMINI_CHAT_MODEL', { infer: true }) ?? 'gemini-2.5-flash';
+  }
+
+  get geminiEmbeddingModel(): string {
+    return this.config.get('GEMINI_EMBEDDING_MODEL', { infer: true }) ?? 'text-embedding-004';
+  }
+
   /* Resilience & Circuit Breakers */
   get circuitBreakerFailureThreshold(): number {
     return this.config.get('CIRCUIT_BREAKER_FAILURE_THRESHOLD', { infer: true }) ?? 5;

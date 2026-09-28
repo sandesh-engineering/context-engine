@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import * as crypto from 'crypto';
 import {
@@ -13,6 +13,8 @@ import {
   IngestionJobStage,
   Domain,
 } from '../common/enums';
+import { TraceContextPropagator } from '../../common/telemetry';
+import { StructuredLogger, LogEvents } from '../../common/logger';
 
 export interface PersistDocumentParams {
   tenantId: string;
@@ -34,7 +36,7 @@ export interface PersistDocumentResult {
 
 @Injectable()
 export class IngestionPersistenceService {
-  private readonly logger = new Logger(IngestionPersistenceService.name);
+  private readonly logger = new StructuredLogger(IngestionPersistenceService.name);
 
   constructor(private readonly dataSource: DataSource) { }
 
@@ -95,7 +97,12 @@ export class IngestionPersistenceService {
       });
       const savedJob = await manager.save(IngestionJobEntity, job);
 
-      /* 4. Insert transactional outbox event in ingestion_outbox table */
+      /* 4. Inject active OpenTelemetry context into outbox metadata carrier */
+      const metadata = TraceContextPropagator.injectToCarrier(
+        params.metadata ? { ...params.metadata } : {},
+      );
+
+      /* 5. Insert transactional outbox event in ingestion_outbox table */
       const eventId = `evt_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
       const outboxEvent = manager.create(IngestionOutboxEntity, {
         event_id: eventId,
@@ -106,7 +113,7 @@ export class IngestionPersistenceService {
         processed: false,
         processed_at: null,
         failed_at: null,
-        metadata: params.metadata || null,
+        metadata: Object.keys(metadata).length > 0 ? (metadata as Record<string, unknown>) : null,
         payload: {
           documentId: savedDocument.id,
           versionId: savedVersion.id,
@@ -121,11 +128,11 @@ export class IngestionPersistenceService {
       });
       const savedOutbox = await manager.save(IngestionOutboxEntity, outboxEvent);
 
-      this.logger.log('Atomically committed document and outbox event', {
+      this.logger.logEvent('document.persist.completed', {
         documentId: savedDocument.id,
         versionId: savedVersion.id,
         jobId: savedJob.id,
-        outboxId: savedOutbox.id,
+        eventId: savedOutbox.event_id,
         tenantId: params.tenantId,
       });
 

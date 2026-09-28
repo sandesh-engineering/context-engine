@@ -2,6 +2,7 @@ packages:
   - "apps/*"
   - "packages/*"
 allowBuilds:
+  '@google/genai': false
   "@parcel/watcher": false
   '@scarf/scarf': false
   "@sentry/cli": false

@@ -1,7 +1,6 @@
 import {
   Injectable,
   Inject,
-  Logger,
   Optional,
   OnModuleInit,
   OnModuleDestroy,
@@ -22,6 +21,8 @@ import {
 } from '../embeddings/interfaces/embedding-provider.interface';
 import { OutboxMessagePayload } from '../messaging/interfaces/message-publisher.interface';
 import { IngestionJobStage } from '../common/enums';
+import { AppTracer, SemanticAttributes } from '../../common/telemetry';
+import { StructuredLogger, LogEvents } from '../../common/logger';
 
 export interface SqsEmbeddingPollerOptions {
   sqsClient?: SQSClient;
@@ -34,16 +35,10 @@ export interface SqsEmbeddingPollerOptions {
 
 /**
  * AWS SQS background worker poller service for vector embedding generation.
- *
- * @remarks
- * - Long-polls AWS SQS embedding queue for `document.embedding.v1` events.
- * - Fetches unembedded document chunks, generates dense vector embeddings via `IEmbeddingProvider`.
- * - Bulk-updates vector embeddings in PostgreSQL `document_chunks` table.
- * - Confirms vector indexing completion and updates ingestion job status upon completion.
  */
 @Injectable()
 export class SqsEmbeddingPollerService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(SqsEmbeddingPollerService.name);
+  private readonly logger = new StructuredLogger(SqsEmbeddingPollerService.name);
   private readonly sqsClient: SQSClient;
   private readonly queueUrl: string;
   private readonly waitTimeSeconds: number;
@@ -105,7 +100,7 @@ export class SqsEmbeddingPollerService implements OnModuleInit, OnModuleDestroy 
     if (embeddingWorkerEnabled) {
       this.startPoller();
     } else {
-      this.logger.log('SqsEmbeddingPollerService disabled', { workerEnabled: false });
+      this.logger.logEvent('embedding.worker.disabled', { workerEnabled: false });
     }
   }
 
@@ -116,7 +111,7 @@ export class SqsEmbeddingPollerService implements OnModuleInit, OnModuleDestroy 
   startPoller(): void {
     if (this.isRunning) return;
     this.isRunning = true;
-    this.logger.log('Starting SQS Embedding Poller worker', {
+    this.logger.logEvent('embedding.worker.started', {
       queueUrl: this.queueUrl,
       concurrency: this.concurrency,
       waitTimeSeconds: this.waitTimeSeconds,
@@ -130,11 +125,11 @@ export class SqsEmbeddingPollerService implements OnModuleInit, OnModuleDestroy 
 
   async stopPoller(): Promise<void> {
     if (!this.isRunning) return;
-    this.logger.log('Stopping SQS Embedding Poller worker', { queueUrl: this.queueUrl });
+    this.logger.logEvent('embedding.worker.stopping', { queueUrl: this.queueUrl });
     this.isRunning = false;
     await Promise.all(this.pollingPromises);
     this.pollingPromises = [];
-    this.logger.log('SQS Embedding Poller stopped cleanly', { queueUrl: this.queueUrl });
+    this.logger.logEvent('embedding.worker.stopped', { queueUrl: this.queueUrl });
   }
 
   private async runPollLoop(workerId: number): Promise<void> {
@@ -142,10 +137,6 @@ export class SqsEmbeddingPollerService implements OnModuleInit, OnModuleDestroy 
       try {
         const messages = await this.pollMessages();
         if (messages && messages.length > 0) {
-          this.logger.debug('Worker received embedding SQS messages', {
-            workerId,
-            messageCount: messages.length,
-          });
           for (const message of messages) {
             if (!this.isRunning) break;
             await this.processEmbeddingMessage(message);
@@ -153,10 +144,9 @@ export class SqsEmbeddingPollerService implements OnModuleInit, OnModuleDestroy 
         }
       } catch (error) {
         if (!this.isRunning) break;
-        this.logger.error('Unhandled error in embedding worker poll loop', {
+        this.logger.logError('embedding.poll_loop.failed', error, {
           workerId,
           queueUrl: this.queueUrl,
-          error: error instanceof Error ? error.message : String(error),
         });
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
@@ -178,10 +168,7 @@ export class SqsEmbeddingPollerService implements OnModuleInit, OnModuleDestroy 
   }
 
   /**
-   * Processes an individual SQS embedding message payload, generating dense vectors with AbortSignal protection.
-   *
-   * @param {Message} sqsMessage - Native SQS message object
-   * @returns {Promise<void>}
+   * Processes an individual SQS embedding message payload within an OpenTelemetry Consumer span.
    */
   async processEmbeddingMessage(sqsMessage: Message): Promise<void> {
     if (!sqsMessage.Body || !sqsMessage.ReceiptHandle) {
@@ -192,7 +179,8 @@ export class SqsEmbeddingPollerService implements OnModuleInit, OnModuleDestroy 
     try {
       parsedPayload = JSON.parse(sqsMessage.Body) as OutboxMessagePayload;
     } catch (err) {
-      this.logger.error('Failed to parse embedding SQS message JSON body', {
+      this.logger.logError(LogEvents.QUEUE_MESSAGE_FAILED, err, {
+        messageId: sqsMessage.MessageId,
         receiptHandle: sqsMessage.ReceiptHandle,
         body: sqsMessage.Body,
       });
@@ -203,104 +191,168 @@ export class SqsEmbeddingPollerService implements OnModuleInit, OnModuleDestroy 
     const payloadObj = parsedPayload.payload as Record<string, unknown> | undefined;
     const versionId = payloadObj?.versionId as string;
     const jobId = payloadObj?.jobId as string | undefined;
-    const traceId =
-      parsedPayload.traceId ||
-      (sqsMessage.MessageAttributes?.traceId?.StringValue as string) ||
-      undefined;
 
-    if (!versionId) {
-      this.logger.warn('Embedding SQS message missing versionId', {
-        receiptHandle: sqsMessage.ReceiptHandle,
-        parsedPayload,
-        traceId,
-      });
-      await this.deleteSqsMessage(sqsMessage.ReceiptHandle);
-      return;
+    // Merge attributes from SQS MessageAttributes and parsedPayload metadata
+    const messageAttributes = {
+      ...(sqsMessage.MessageAttributes || {}),
+    };
+
+    if (!messageAttributes.traceparent && parsedPayload.traceparent) {
+      messageAttributes.traceparent = {
+        DataType: 'String',
+        StringValue: parsedPayload.traceparent,
+      };
+    }
+    if (!messageAttributes.tracestate && parsedPayload.tracestate) {
+      messageAttributes.tracestate = {
+        DataType: 'String',
+        StringValue: parsedPayload.tracestate,
+      };
     }
 
-    this.logger.log('Processing vector embeddings for version', { versionId, jobId, traceId });
-
-    const batchSize = this.appConfig.embeddingBatchSize;
-    const abortController = new AbortController();
-
-    try {
-      while (this.isRunning) {
-        const unembeddedChunks = await this.chunksRepository.fetchUnembeddedChunks(
-          versionId,
-          batchSize,
-        );
-
-        if (!unembeddedChunks || unembeddedChunks.length === 0) {
-          break;
+    return AppTracer.traceConsumer(
+      'embedding.worker',
+      messageAttributes,
+      async (span) => {
+        span.setAttribute(SemanticAttributes.MESSAGING_SYSTEM, 'aws.sqs');
+        span.setAttribute(SemanticAttributes.MESSAGING_DESTINATION_NAME, this.queueUrl);
+        span.setAttribute(SemanticAttributes.MESSAGING_OPERATION, 'consume');
+        if (sqsMessage.MessageId) {
+          span.setAttribute(SemanticAttributes.MESSAGING_MESSAGE_ID, sqsMessage.MessageId);
+        }
+        if (versionId) {
+          span.setAttribute(SemanticAttributes.KE_VERSION_ID, versionId);
+        }
+        if (jobId) {
+          span.setAttribute(SemanticAttributes.KE_JOB_ID, jobId);
         }
 
-        this.logger.log('Generating embeddings for chunk batch', {
+        if (!versionId) {
+          this.logger.warnEvent('embedding.message.missing_version_id', {
+            receiptHandle: sqsMessage.ReceiptHandle,
+            parsedPayload,
+          });
+          await this.deleteSqsMessage(sqsMessage.ReceiptHandle!);
+          return;
+        }
+
+        this.logger.logEvent(LogEvents.EMBEDDING_JOB_STARTED, {
           versionId,
-          batchCount: unembeddedChunks.length,
-          traceId,
+          jobId,
+          messageId: sqsMessage.MessageId,
         });
 
-        const texts = unembeddedChunks.map((c) => c.content);
-        const embeddingResult = await this.embeddingProvider.generateEmbeddings(
-          { texts },
-          { signal: abortController.signal },
-        );
+        const batchSize = this.appConfig.embeddingBatchSize;
+        const abortController = new AbortController();
 
-        const chunkEmbeddings = unembeddedChunks.map((chunk, idx) => ({
-          chunkId: chunk.id,
-          embedding: embeddingResult.embeddings[idx] || [],
-        }));
+        try {
+          let batchIndex = 0;
+          let hasMore = true;
+          while (hasMore) {
+            const unembeddedChunks = await this.chunksRepository.fetchUnembeddedChunks(
+              versionId,
+              batchSize,
+            );
 
-        await this.chunksRepository.updateBatchEmbeddings(chunkEmbeddings);
-      }
+            if (!unembeddedChunks || unembeddedChunks.length === 0) {
+              hasMore = false;
+              break;
+            }
 
-      /* Verify vector embedding persistence and complete ingestion job */
-      await this.verifyEmbeddingPersistenceAndComplete(versionId, jobId, traceId);
+            batchIndex++;
+            this.logger.logEvent(LogEvents.EMBEDDING_BATCH_STARTED, {
+              versionId,
+              jobId,
+              batchIndex,
+              batchCount: unembeddedChunks.length,
+            });
 
-      /* Delete message from SQS embedding queue after successful execution */
-      await this.deleteSqsMessage(sqsMessage.ReceiptHandle);
-      this.logger.log('Acknowledged and deleted embedding SQS message', { versionId, traceId });
-    } catch (error) {
-      abortController.abort();
-      this.logger.error('Failed processing embedding batch message', {
-        versionId,
-        jobId,
-        traceId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    }
+            const texts = unembeddedChunks.map((c) => c.content);
+
+            // Sub-span: embedding.ollama
+            const embeddingResult = await AppTracer.traceSpan(
+              'embedding.ollama',
+              {
+                attributes: {
+                  [SemanticAttributes.KE_VERSION_ID]: versionId,
+                  'batch.size': texts.length,
+                },
+              },
+              async () =>
+                this.embeddingProvider.generateEmbeddings(
+                  { texts },
+                  { signal: abortController.signal },
+                ),
+            );
+
+            const chunkEmbeddings = unembeddedChunks.map((chunk, idx) => ({
+              chunkId: chunk.id,
+              embedding: embeddingResult.embeddings[idx] || [],
+            }));
+
+            // Sub-span: embedding.persist
+            await AppTracer.traceSpan(
+              'embedding.persist',
+              {
+                attributes: {
+                  [SemanticAttributes.KE_VERSION_ID]: versionId,
+                  'chunk.count': chunkEmbeddings.length,
+                },
+              },
+              async () => this.chunksRepository.updateBatchEmbeddings(chunkEmbeddings),
+            );
+
+            this.logger.logEvent(LogEvents.EMBEDDING_BATCH_COMPLETED, {
+              versionId,
+              jobId,
+              batchIndex,
+              batchCount: unembeddedChunks.length,
+            });
+          }
+
+          /* Verify vector embedding persistence and complete ingestion job */
+          await this.verifyEmbeddingPersistenceAndComplete(versionId, jobId);
+
+          /* Delete message from SQS embedding queue after successful execution */
+          await this.deleteSqsMessage(sqsMessage.ReceiptHandle!);
+
+          this.logger.logEvent(LogEvents.EMBEDDING_JOB_COMPLETED, {
+            versionId,
+            jobId,
+            messageId: sqsMessage.MessageId,
+          });
+        } catch (error) {
+          abortController.abort();
+          this.logger.logError(LogEvents.EMBEDDING_JOB_FAILED, error, {
+            versionId,
+            jobId,
+            messageId: sqsMessage.MessageId,
+          });
+          throw error;
+        }
+      },
+    );
   }
 
   /**
    * Verifies all document chunks for a version have received embeddings and updates job stage/status to COMPLETED.
-   *
-   * @param {string} versionId - Target document version UUID
-   * @param {string} [jobId] - Optional associated ingestion job UUID
-   * @param {string} [traceId] - Distributed tracing correlation ID
-   * @returns {Promise<void>}
    */
   private async verifyEmbeddingPersistenceAndComplete(
     versionId: string,
     jobId?: string,
-    traceId?: string,
   ): Promise<void> {
     const stats = await this.chunksRepository.countChunkStats(versionId);
-    this.logger.log('Confirmed chunk embedding completion stats', {
+
+    this.logger.logEvent(LogEvents.EMBEDDING_PERSIST_COMPLETED, {
       versionId,
+      jobId,
       totalChunks: stats.total,
       embeddedChunks: stats.embedded,
-      traceId,
     });
 
     if (jobId && stats.total > 0 && stats.embedded === stats.total) {
       await this.jobsRepository.updateJobStage(jobId, IngestionJobStage.INDEXING);
       await this.jobsRepository.markJobCompleted(jobId);
-      this.logger.log('Marked ingestion job completed following embedding persistence verification', {
-        jobId,
-        versionId,
-        traceId,
-      });
     }
   }
 

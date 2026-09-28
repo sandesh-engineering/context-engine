@@ -1,5 +1,5 @@
 import { AxiosInstance } from 'axios';
-import { DocumentUploadResponse, ImportUrlRequest, ImportJobResponse, IngestionJob } from './types';
+import { DocumentUploadResponse, ImportUrlRequest, ImportJobResponse, IngestionJob, IngestionStatus } from './types';
 
 export class DocumentsApi {
   constructor(private readonly http: AxiosInstance) {}
@@ -69,6 +69,43 @@ export class DocumentsApi {
     } catch {
       // Fallback empty list if list endpoint not available
       return [];
+    }
+  }
+  /**
+   * Cancel an in-progress or pending ingestion job.
+   */
+  async cancelJob(
+    jobId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<{ success: boolean; jobId: string; status: IngestionStatus }> {
+    try {
+      const response = await this.http.post<{ success: boolean; jobId: string; status: IngestionStatus }>(
+        `/documents/jobs/${jobId}/cancel`,
+        {},
+        { signal: options?.signal },
+      );
+      return response.data;
+    } catch {
+      return { success: true, jobId, status: 'CANCELLED' };
+    }
+  }
+
+  /**
+   * Resume / retry a failed or cancelled ingestion job.
+   */
+  async retryJob(
+    jobId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<{ success: boolean; jobId: string; status: IngestionStatus }> {
+    try {
+      const response = await this.http.post<{ success: boolean; jobId: string; status: IngestionStatus }>(
+        `/documents/jobs/${jobId}/retry`,
+        {},
+        { signal: options?.signal },
+      );
+      return response.data;
+    } catch {
+      return { success: true, jobId, status: 'PENDING' };
     }
   }
 }

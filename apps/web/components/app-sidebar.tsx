@@ -5,8 +5,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   MessageSquareIcon,
-  UploadCloudIcon,
-  PlusIcon,
+  FileUpIcon,
+  GlobeIcon,
   LayersIcon,
 } from "lucide-react";
 import {
@@ -28,33 +28,15 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@repo/ui/components/sheet";
-import { Button } from "@repo/ui/components/button";
-import { useConversation } from "../context/conversation-context";
 import { cn } from "@repo/ui/lib/utils";
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const { isMobile, mobileOpen, setMobileOpen, expanded } = useSidebar();
-  const {
-    conversations,
-    activeConversationId,
-    setActiveConversationId,
-    createNewConversation,
-    isLoadingConversations,
-  } = useConversation();
+  const { isMobile, mobileOpen, setMobileOpen } = useSidebar();
 
   const isChat = pathname === "/" || pathname?.startsWith("/chat");
-  const isUpload = pathname?.startsWith("/upload");
-
-  const handleSelectConversation = (id: string) => {
-    setActiveConversationId(id);
-    if (isMobile) setMobileOpen(false);
-  };
-
-  const handleNewChat = async () => {
-    await createNewConversation();
-    if (isMobile) setMobileOpen(false);
-  };
+  const isUploadFile = pathname?.startsWith("/upload/file") || pathname === "/upload";
+  const isUploadUrl = pathname?.startsWith("/upload/url");
 
   const navContent = (
     <div className="flex h-full flex-col justify-between select-none">
@@ -65,7 +47,7 @@ export function AppSidebar() {
             Navigation
           </SidebarGroupLabel>
           <SidebarGroupContent>
-            <SidebarMenu className="gap-1">
+            <SidebarMenu className="gap-1.5">
               <SidebarMenuItem>
                 <Link
                   href="/chat"
@@ -75,93 +57,60 @@ export function AppSidebar() {
                   <SidebarMenuButton
                     isActive={isChat}
                     className={cn(
-                      "gap-2.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors",
+                      "gap-3 rounded-xl px-3 py-2.5 text-xs font-medium",
                       isChat
-                        ? "bg-primary text-primary-foreground font-semibold shadow-xs"
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                        ? "bg-primary text-primary-foreground font-semibold shadow-xs transition-none"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground transition-colors duration-100"
                     )}
                   >
                     <MessageSquareIcon className="size-4 shrink-0" />
-                    <span className="truncate">Chat</span>
+                    <span className="truncate text-xs font-medium">Chat Workspace</span>
                   </SidebarMenuButton>
                 </Link>
               </SidebarMenuItem>
 
               <SidebarMenuItem>
                 <Link
-                  href="/upload"
+                  href="/upload/file"
                   onClick={() => isMobile && setMobileOpen(false)}
                   className="w-full"
                 >
                   <SidebarMenuButton
-                    isActive={isUpload}
+                    isActive={isUploadFile}
                     className={cn(
-                      "gap-2.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors",
-                      isUpload
-                        ? "bg-primary text-primary-foreground font-semibold shadow-xs"
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      "gap-3 rounded-xl px-3 py-2.5 text-xs font-medium",
+                      isUploadFile
+                        ? "bg-primary text-primary-foreground font-semibold shadow-xs transition-none"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground transition-colors duration-100"
                     )}
                   >
-                    <UploadCloudIcon className="size-4 shrink-0" />
-                    <span className="truncate">Document Upload</span>
+                    <FileUpIcon className="size-4 shrink-0" />
+                    <span className="truncate text-xs font-medium">PDF File Ingestion</span>
+                  </SidebarMenuButton>
+                </Link>
+              </SidebarMenuItem>
+
+              <SidebarMenuItem>
+                <Link
+                  href="/upload/url"
+                  onClick={() => isMobile && setMobileOpen(false)}
+                  className="w-full"
+                >
+                  <SidebarMenuButton
+                    isActive={isUploadUrl}
+                    className={cn(
+                      "gap-3 rounded-xl px-3 py-2.5 text-xs font-medium",
+                      isUploadUrl
+                        ? "bg-primary text-primary-foreground font-semibold shadow-xs transition-none"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground transition-colors duration-100"
+                    )}
+                  >
+                    <GlobeIcon className="size-4 shrink-0" />
+                    <span className="truncate text-xs font-medium">Public URL Ingestion</span>
                   </SidebarMenuButton>
                 </Link>
               </SidebarMenuItem>
             </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        {/* Conversation Threads */}
-        <SidebarGroup className="flex-1 overflow-hidden">
-          <div className="flex items-center justify-between px-2 pb-1.5">
-            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-              Recent Chats
-            </span>
-            <Button
-              size="xs"
-              variant="ghost"
-              onClick={handleNewChat}
-              aria-label="New Chat"
-              data-testid="new-chat-button"
-              className="h-6 px-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted gap-1 rounded-md"
-            >
-              <PlusIcon className="size-3.5" />
-              <span className="text-[11px] font-medium">New</span>
-            </Button>
-          </div>
-
-          <SidebarGroupContent className="flex flex-col gap-0.5 overflow-y-auto max-h-[calc(100vh-280px)] pr-1">
-            {isLoadingConversations && conversations.length === 0 ? (
-              <div className="px-2 py-4 text-center text-xs text-muted-foreground animate-pulse">
-                Loading chats...
-              </div>
-            ) : conversations.length === 0 ? (
-              <div className="px-2 py-4 text-center text-xs text-muted-foreground/60">
-                No previous conversations
-              </div>
-            ) : (
-              conversations.map((conv) => {
-                const isActive = isChat && conv.id === activeConversationId;
-                return (
-                  <Link
-                    key={conv.id}
-                    href="/chat"
-                    onClick={() => handleSelectConversation(conv.id)}
-                    className={cn(
-                      "group flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs transition-all",
-                      isActive
-                        ? "bg-accent font-medium text-accent-foreground shadow-2xs"
-                        : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-                    )}
-                  >
-                    <MessageSquareIcon className="size-3.5 shrink-0 opacity-60 group-hover:opacity-100" />
-                    <span className="truncate flex-1">
-                      {conv.title || "Untitled Chat"}
-                    </span>
-                  </Link>
-                );
-              })
-            )}
           </SidebarGroupContent>
         </SidebarGroup>
       </div>
@@ -182,7 +131,7 @@ export function AppSidebar() {
   return (
     <>
       {/* Desktop Sidebar */}
-      <Sidebar className="w-64 border-r border-border bg-card/60 backdrop-blur-md">
+      <Sidebar className="border-r border-border bg-card/60 backdrop-blur-md">
         <SidebarHeader className="flex h-14 items-center justify-between px-4 border-b border-border/60">
           <div className="flex items-center gap-2.5">
             <div className="flex size-7 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-2xs">

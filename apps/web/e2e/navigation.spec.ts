@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("App Navigation & Responsive Shell", () => {
-  test("switches between Chat and Document Upload views on desktop", async ({
+  test("switches between Chat, PDF Upload, and URL Ingestion views on desktop", async ({
     page,
   }) => {
     await page.goto("/chat");
@@ -11,11 +11,18 @@ test.describe("App Navigation & Responsive Shell", () => {
       "Interactive Chat"
     );
 
-    // Click Document Upload in sidebar
-    await page.getByRole("link", { name: /Document Upload/i }).click();
-    await expect(page).toHaveURL(/\/upload/);
+    // Click PDF File Upload in sidebar
+    await page.getByRole("link", { name: /PDF File Upload/i }).click();
+    await expect(page).toHaveURL(/\/upload\/file/);
     await expect(page.getByRole("heading", { level: 1 })).toContainText(
-      "Document Upload"
+      "PDF Document Ingestion"
+    );
+
+    // Click URL Ingestion in sidebar
+    await page.getByRole("link", { name: /URL Ingestion/i }).first().click();
+    await expect(page).toHaveURL(/\/upload\/url/);
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(
+      "Public URL Ingestion"
     );
 
     // Navigate back to Chat
@@ -38,9 +45,9 @@ test.describe("App Navigation & Responsive Shell", () => {
     const drawer = page.getByRole("dialog");
     await expect(drawer).toBeVisible();
 
-    // Click upload link inside drawer
-    await drawer.getByRole("link", { name: /Document Upload/i }).click();
-    await expect(page).toHaveURL(/\/upload/);
+    // Click PDF upload link inside drawer
+    await drawer.getByRole("link", { name: /PDF File Upload/i }).click();
+    await expect(page).toHaveURL(/\/upload\/file/);
   });
 
   test("skip to main content link becomes focused on tab", async ({ page }) => {

@@ -6,6 +6,8 @@ import * as crypto from 'crypto';
 import { Domain } from '../../common/enums';
 import { EmbeddingOutboxEntity } from '../entities/embedding-outbox.entity';
 
+import { TraceContextPropagator } from '../../../common/telemetry';
+
 type ChunkEmbedding = {
   chunkId: string;
   embedding: number[];
@@ -42,11 +44,13 @@ export class DocumentChunksRepository {
    *
    * @param {string} versionId - Document version UUID
    * @param {Partial<DocumentChunkEntity>[]} chunks - Array of chunk entities to persist
+   * @param {Record<string, unknown>} [traceMetadata] - Optional explicit trace context metadata
    * @returns {Promise<DocumentChunkEntity[]>} Array of saved chunk entities
    */
   async saveChunksWithOutbox(
     versionId: string,
     chunks: Partial<DocumentChunkEntity>[],
+    traceMetadata?: Record<string, unknown>,
   ): Promise<DocumentChunkEntity[]> {
     if (!chunks || chunks.length === 0) {
       return [];
@@ -66,6 +70,11 @@ export class DocumentChunksRepository {
 
       const savedChunks = await manager.save(DocumentChunkEntity, chunkEntities);
 
+      /* Inject active OpenTelemetry context into outbox metadata carrier */
+      const metadata = TraceContextPropagator.injectToCarrier(
+        traceMetadata ? { ...traceMetadata } : {},
+      );
+
       /* Enqueue event in embedding_outbox table */
       const eventId = `evt_emb_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
       const embeddingOutboxEvent = manager.create(EmbeddingOutboxEntity, {
@@ -77,7 +86,7 @@ export class DocumentChunksRepository {
         processed: false,
         processed_at: null,
         failed_at: null,
-        metadata: null,
+        metadata: Object.keys(metadata).length > 0 ? (metadata as Record<string, unknown>) : null,
         payload: {
           versionId,
           chunkCount: savedChunks.length,

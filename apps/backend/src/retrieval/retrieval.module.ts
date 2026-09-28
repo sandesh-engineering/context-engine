@@ -7,6 +7,7 @@ import { VectorSearchRepository } from './repositories/vector-search.repository'
 import { DocumentChunkEntity } from '../ingestion/database/entities/document-chunk.entity';
 import { EMBEDDING_PROVIDER } from '../ingestion/embeddings/interfaces/embedding-provider.interface';
 import { OllamaEmbeddingProvider } from '../ingestion/embeddings/providers/ollama-embedding.provider';
+import { GeminiEmbeddingProvider } from '../ingestion/embeddings/providers/gemini-embedding.provider';
 import { AppConfigService } from '../config/app-config.service';
 
 @Module({
@@ -20,6 +21,7 @@ import { AppConfigService } from '../config/app-config.service';
     VectorSearchRepository,
     RetrievalService,
     OllamaEmbeddingProvider,
+    GeminiEmbeddingProvider,
     {
       provide: EMBEDDING_PROVIDER,
       useClass: OllamaEmbeddingProvider,

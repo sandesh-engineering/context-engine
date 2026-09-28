@@ -1,6 +1,5 @@
 import {
   Injectable,
-  Logger,
   Optional,
   OnModuleInit,
   OnModuleDestroy,
@@ -15,40 +14,26 @@ import {
 import { AppConfigService } from '../../config/app-config.service';
 import { IngestionJobsRepository } from '../database/repositories/ingestion-jobs.repository';
 import { OutboxMessagePayload } from '../messaging/interfaces/message-publisher.interface';
-
-/**
- * Configuration options for SqsIngestionPollerService initialization.
- */
 import { IngestionPipelineExecutor } from '../pipeline/ingestion-pipeline.executor';
+import { AppTracer, SemanticAttributes } from '../../common/telemetry';
+import { StructuredLogger, LogEvents } from '../../common/logger';
 
 export interface SqsIngestionPollerOptions {
-  /* Pre-configured SQSClient instance for AWS SQS operations */
   sqsClient?: SQSClient;
-  /* Target AWS SQS Queue URL */
   queueUrl?: string;
-  /* Long polling wait time in seconds (0 to 20s) */
   waitTimeSeconds?: number;
-  /* Maximum number of messages to fetch per poll batch (1 to 10) */
   maxNumberOfMessages?: number;
-  /* Visibility timeout in seconds for in-flight messages */
   visibilityTimeoutSeconds?: number;
-  /* Number of concurrent long-polling loops */
   concurrency?: number;
-  /* Ingestion pipeline executor service */
   pipelineExecutor?: IngestionPipelineExecutor;
 }
 
 /**
- * AWS SQS background worker poller service.
- *
- * @remarks
- * - Continuously long-polls AWS SQS queue (`knowledge-engine-ingestion-queue`) for job dispatch events.
- * - Enforces atomic database job claiming against PostgreSQL (`IngestionJobStage.AVAILABLE`) to ensure idempotency.
- * - Acknowledges and deletes processed or duplicate messages from SQS.
+ * AWS SQS background worker poller service for ingestion jobs.
  */
 @Injectable()
 export class SqsIngestionPollerService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(SqsIngestionPollerService.name);
+  private readonly logger = new StructuredLogger(SqsIngestionPollerService.name);
   private readonly sqsClient: SQSClient;
   private readonly queueUrl: string;
   private readonly waitTimeSeconds: number;
@@ -100,41 +85,24 @@ export class SqsIngestionPollerService implements OnModuleInit, OnModuleDestroy 
     this.sqsClient = options?.sqsClient || new SQSClient(sqsOptions);
   }
 
-  /**
-   * NestJS Lifecycle Hook: Initiates SQS long polling worker loops when module initializes.
-   *
-   * @remarks
-   * Evaluates `WORKER_ENABLED` environment configuration to determine whether to launch background loops.
-   */
   onModuleInit(): void {
     if (this.appConfig.workerEnabled || process.env.WORKER_ENABLED === 'true') {
       this.startPoller();
     } else {
-      this.logger.log('SqsIngestionPollerService disabled', { workerEnabled: false });
+      this.logger.logEvent('ingestion.worker.disabled', { workerEnabled: false });
     }
   }
 
-  /**
-   * NestJS Lifecycle Hook: Gracefully terminates long polling loops when module shuts down.
-   *
-   * @returns {Promise<void>}
-   */
   async onModuleDestroy(): Promise<void> {
     await this.stopPoller();
   }
 
-  /**
-   * Starts the SQS long-polling worker loops.
-   *
-   * @remarks
-   * Spawns worker polling loops up to the configured `concurrency` level.
-   */
   startPoller(): void {
     if (this.isRunning) {
       return;
     }
     this.isRunning = true;
-    this.logger.log('Starting SQS Ingestion Poller', {
+    this.logger.logEvent('ingestion.worker.started', {
       queueUrl: this.queueUrl,
       concurrency: this.concurrency,
       waitTimeSeconds: this.waitTimeSeconds,
@@ -146,37 +114,22 @@ export class SqsIngestionPollerService implements OnModuleInit, OnModuleDestroy 
     }
   }
 
-  /**
-   * Stops the worker polling loop gracefully and awaits in-flight message processing.
-   *
-   * @returns {Promise<void>}
-   */
   async stopPoller(): Promise<void> {
     if (!this.isRunning) {
       return;
     }
-    this.logger.log('Stopping SQS Ingestion Poller', { queueUrl: this.queueUrl });
+    this.logger.logEvent('ingestion.worker.stopping', { queueUrl: this.queueUrl });
     this.isRunning = false;
     await Promise.all(this.pollingPromises);
     this.pollingPromises = [];
-    this.logger.log('SQS Ingestion Poller stopped cleanly', { queueUrl: this.queueUrl });
+    this.logger.logEvent('ingestion.worker.stopped', { queueUrl: this.queueUrl });
   }
 
-  /**
-   * Internal worker polling loop executing continuous SQS long polling requests.
-   *
-   * @param {number} workerId - Zero-indexed identifier for the worker concurrency loop
-   * @returns {Promise<void>}
-   */
   private async runPollLoop(workerId: number): Promise<void> {
     while (this.isRunning) {
       try {
         const messages = await this.pollMessages();
         if (messages && messages.length > 0) {
-          this.logger.debug('Worker received SQS messages', {
-            workerId,
-            messageCount: messages.length,
-          });
           for (const message of messages) {
             if (!this.isRunning) break;
             await this.processSqsMessage(message);
@@ -184,22 +137,15 @@ export class SqsIngestionPollerService implements OnModuleInit, OnModuleDestroy 
         }
       } catch (error) {
         if (!this.isRunning) break;
-        this.logger.error('Unhandled error in worker poll loop', {
+        this.logger.logError('ingestion.poll_loop.failed', error, {
           workerId,
           queueUrl: this.queueUrl,
-          error: error instanceof Error ? error.message : String(error),
         });
-        /* Small backoff on loop error to prevent tight error spinning */
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }
   }
 
-  /**
-   * Executes a single SQS `ReceiveMessageCommand` long-poll invocation.
-   *
-   * @returns {Promise<Message[]>} Array of received SQS message objects
-   */
   private async pollMessages(): Promise<Message[]> {
     const command = new ReceiveMessageCommand({
       QueueUrl: this.queueUrl,
@@ -215,17 +161,7 @@ export class SqsIngestionPollerService implements OnModuleInit, OnModuleDestroy 
   }
 
   /**
-   * Processes an individual SQS message payload atomically and handles deletion and idempotency.
-   *
-   * @remarks
-   * - Parses SQS JSON message payload.
-   * - Enforces pipeline stage validation: job MUST be in `AVAILABLE` stage to be claimed.
-   * - Deletes acknowledged duplicate or invalid messages from SQS queue.
-   * - Leaves unhandled processing errors in SQS to trigger visibility timeout / DLQ redrive.
-   *
-   * @param {Message} sqsMessage - Native SQS message object
-   * @returns {Promise<void>}
-   * @throws {Error} Throws if job processing pipeline fails
+   * Processes an individual SQS message payload atomically within an OpenTelemetry Consumer span.
    */
   async processSqsMessage(sqsMessage: Message): Promise<void> {
     if (!sqsMessage.Body || !sqsMessage.ReceiptHandle) {
@@ -236,11 +172,11 @@ export class SqsIngestionPollerService implements OnModuleInit, OnModuleDestroy 
     try {
       parsedPayload = JSON.parse(sqsMessage.Body) as OutboxMessagePayload;
     } catch (err) {
-      this.logger.error('Failed to parse SQS message JSON body', {
+      this.logger.logError(LogEvents.QUEUE_MESSAGE_FAILED, err, {
+        messageId: sqsMessage.MessageId,
         receiptHandle: sqsMessage.ReceiptHandle,
         body: sqsMessage.Body,
       });
-      /* Delete unparseable poison message from queue */
       await this.deleteSqsMessage(sqsMessage.ReceiptHandle);
       return;
     }
@@ -248,67 +184,110 @@ export class SqsIngestionPollerService implements OnModuleInit, OnModuleDestroy 
     const payloadObj = parsedPayload.payload as Record<string, unknown> | undefined;
     const jobId = (payloadObj?.jobId as string) || (parsedPayload.eventId as string);
 
-    if (!jobId) {
-      this.logger.warn('SQS message payload missing jobId or eventId', {
-        receiptHandle: sqsMessage.ReceiptHandle,
-        parsedPayload,
-      });
-      await this.deleteSqsMessage(sqsMessage.ReceiptHandle);
-      return;
+    // Merge attributes from SQS MessageAttributes and parsedPayload metadata
+    const messageAttributes = {
+      ...(sqsMessage.MessageAttributes || {}),
+    };
+
+    if (!messageAttributes.traceparent && parsedPayload.traceparent) {
+      messageAttributes.traceparent = {
+        DataType: 'String',
+        StringValue: parsedPayload.traceparent,
+      };
+    }
+    if (!messageAttributes.tracestate && parsedPayload.tracestate) {
+      messageAttributes.tracestate = {
+        DataType: 'String',
+        StringValue: parsedPayload.tracestate,
+      };
     }
 
-    /* Atomic SQL stage claim (must be in SOURCE_READY stage to transition to PARSING) */
-    const { claimed, job } = await this.jobsRepository.claimJobForProcessing(jobId);
+    return AppTracer.traceConsumer(
+      'ingestion.worker',
+      messageAttributes,
+      async (span) => {
+        span.setAttribute(SemanticAttributes.MESSAGING_SYSTEM, 'aws.sqs');
+        span.setAttribute(SemanticAttributes.MESSAGING_DESTINATION_NAME, this.queueUrl);
+        span.setAttribute(SemanticAttributes.MESSAGING_OPERATION, 'consume');
+        if (sqsMessage.MessageId) {
+          span.setAttribute(SemanticAttributes.MESSAGING_MESSAGE_ID, sqsMessage.MessageId);
+        }
+        if (jobId) {
+          span.setAttribute(SemanticAttributes.KE_JOB_ID, jobId);
+        }
+        if (parsedPayload?.eventId) {
+          span.setAttribute(SemanticAttributes.KE_EVENT_ID, parsedPayload.eventId);
+        }
 
-    if (!claimed) {
-      this.logger.warn('Skipping duplicate or unclaimable job message', {
-        jobId,
-        currentStage: job?.stage || 'UNKNOWN',
-        currentStatus: job?.status || 'UNKNOWN',
-      });
-      /* Delete acknowledged duplicate message from SQS queue */
-      await this.deleteSqsMessage(sqsMessage.ReceiptHandle);
-      return;
-    }
+        this.logger.debugEvent(LogEvents.QUEUE_MESSAGE_RECEIVED, {
+          jobId,
+          eventId: parsedPayload?.eventId,
+          messageId: sqsMessage.MessageId,
+          queue: this.queueUrl,
+        });
 
-    try {
-      this.logger.log('Commencing processing for claimed job', { jobId });
+        if (!jobId) {
+          this.logger.warnEvent('queue.message.missing_job_id', {
+            receiptHandle: sqsMessage.ReceiptHandle,
+            parsedPayload,
+          });
+          await this.deleteSqsMessage(sqsMessage.ReceiptHandle!);
+          return;
+        }
 
-      /* Business logic processing execution point (Parsing & Chunking) */
-      await this.executeJobPipeline(jobId);
+        /* Atomic SQL stage claim (must be in SOURCE_READY stage to transition to PARSING) */
+        const { claimed, job } = await this.jobsRepository.claimJobForProcessing(jobId);
 
-      /* Delete message from SQS after successful parsing & chunking stage execution */
-      await this.deleteSqsMessage(sqsMessage.ReceiptHandle);
-      this.logger.log('Successfully processed parsing and chunking for job', { jobId });
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error('Job processing failed', { jobId, error: errorMessage });
-      await this.jobsRepository.markJobFailed(jobId, errorMessage);
-      /* DO NOT delete message from SQS; leave for SQS visibility timeout / DLQ redrive */
-      throw error;
-    }
+        if (!claimed) {
+          this.logger.warnEvent(LogEvents.QUEUE_DUPLICATE_SKIPPED, {
+            jobId,
+            currentStage: job?.stage || 'UNKNOWN',
+            currentStatus: job?.status || 'UNKNOWN',
+          });
+          await this.deleteSqsMessage(sqsMessage.ReceiptHandle!);
+          return;
+        }
+
+        try {
+          this.logger.logEvent(LogEvents.INGESTION_JOB_CLAIMED, {
+            jobId,
+            documentId: job?.version?.documentId,
+            versionId: job?.versionId,
+          });
+
+          /* Business logic processing execution point (Parsing & Chunking) */
+          await this.executeJobPipeline(jobId);
+
+          /* Delete message from SQS after successful parsing & chunking stage execution */
+          await this.deleteSqsMessage(sqsMessage.ReceiptHandle!);
+
+          this.logger.logEvent(LogEvents.INGESTION_JOB_COMPLETED, {
+            jobId,
+            messageId: sqsMessage.MessageId,
+          });
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this.logger.logError(LogEvents.INGESTION_JOB_FAILED, error, {
+            jobId,
+            messageId: sqsMessage.MessageId,
+          });
+          await this.jobsRepository.markJobFailed(jobId, errorMessage);
+          /* DO NOT delete message from SQS; leave for SQS visibility timeout / DLQ redrive */
+          throw error;
+        }
+      },
+    );
   }
 
-  /**
-   * Executes ingestion job pipeline processing steps using IngestionPipelineExecutor.
-   *
-   * @param {string} jobId - Primary key identifier of target ingestion job
-   * @returns {Promise<void>}
-   */
   private async executeJobPipeline(jobId: string): Promise<void> {
     if (this.pipelineExecutor) {
       await this.pipelineExecutor.executePipeline(jobId);
     } else {
-      this.logger.debug('Ingestion pipeline executed (standalone mock mode)', { jobId });
+      this.logger.debugEvent('ingestion.pipeline.mock_mode', { jobId });
+      await this.jobsRepository.markJobCompleted(jobId);
     }
   }
 
-  /**
-   * Deletes a processed SQS message from queue using its receipt handle.
-   *
-   * @param {string} receiptHandle - SQS receipt handle string
-   * @returns {Promise<void>}
-   */
   private async deleteSqsMessage(receiptHandle: string): Promise<void> {
     const command = new DeleteMessageCommand({
       QueueUrl: this.queueUrl,
