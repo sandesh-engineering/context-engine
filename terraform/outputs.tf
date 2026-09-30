@@ -8,6 +8,11 @@ output "alb_dns_name" {
   value       = aws_lb.main.dns_name
 }
 
+output "app_log_group_name" {
+  description = "CloudWatch Log Group name for application services"
+  value       = aws_cloudwatch_log_group.app_logs.name
+}
+
 output "backend_instance_id" {
   description = "EC2 instance ID for backend API server"
   value       = aws_instance.backend.id
@@ -43,6 +48,11 @@ output "ingestion_queue_url" {
   value       = aws_sqs_queue.ingestion_queue.url
 }
 
+output "ingestion_worker_log_group_name" {
+  description = "CloudWatch Log Group name for ingestion worker service"
+  value       = aws_cloudwatch_log_group.ingestion_worker_logs.name
+}
+
 output "s3_bucket_arn" {
   description = "ARN of the S3 documents storage bucket"
   value       = aws_s3_bucket.documents.arn
@@ -51,6 +61,11 @@ output "s3_bucket_arn" {
 output "s3_bucket_name" {
   description = "Name of the S3 documents storage bucket"
   value       = aws_s3_bucket.documents.id
+}
+
+output "vpc_id" {
+  description = "ID of the provisioned custom VPC"
+  value       = aws_vpc.main.id
 }
 
 output "web_instance_id" {
