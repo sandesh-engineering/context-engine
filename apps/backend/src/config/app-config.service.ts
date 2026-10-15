@@ -15,7 +15,7 @@ export class AppConfigService {
   constructor(private readonly config: ConfigService<Env, true>) { }
 
   get port(): number {
-    return this.config.get('PORT', { infer: true });
+    return this.config.get('PORT', { infer: true }) ?? 5001;
   }
 
   get nodeEnv(): Env['NODE_ENV'] {
