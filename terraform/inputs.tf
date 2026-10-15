@@ -1,7 +1,7 @@
 variable "ami_id" {
   description = "AMI ID for EC2 instances (mock AMI for local emulator)"
   type        = string
-  default     = "ami-0c55b159cbfafe1f0"
+  default     = "ami-ubuntu2404-amd64"
 }
 
 variable "aws_endpoint_url" {
