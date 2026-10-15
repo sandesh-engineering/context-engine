@@ -11,18 +11,16 @@ import {
   ATTR_SERVICE_VERSION,
 } from '@opentelemetry/semantic-conventions';
 
-import * as dotenv from 'dotenv';
-import * as path from 'path';
+import { loadEnvFiles } from './config/env-loader';
 import { envSchema } from './config/env.validation';
 
 /**
  * instrumentation.ts is intentionally standalone — it must initialise the
  * OpenTelemetry SDK *before* NestJS boots, so the DI container does not exist
- * yet. dotenv + envSchema.parse() gives us the same validated, typed values
+ * yet. loadEnvFiles() + envSchema.parse() gives us the same validated, typed values
  * that AppConfigService would provide inside the app.
  */
-const envFile = `.env.${process.env.NODE_ENV || 'development'}`;
-dotenv.config({ path: path.resolve(process.cwd(), envFile) });
+loadEnvFiles();
 
 const env = envSchema.parse(process.env);
 

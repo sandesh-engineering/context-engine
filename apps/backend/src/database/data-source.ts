@@ -1,5 +1,5 @@
 import { DataSource, DataSourceOptions } from 'typeorm';
-import * as dotenv from 'dotenv';
+import { loadEnvFiles } from '../config/env-loader';
 import {
   DocumentEntity,
   DocumentVersionEntity,
@@ -13,7 +13,7 @@ import {
   MessageEntity,
 } from '../chat/entities';
 
-dotenv.config({ path: `.env.${process.env.NODE_ENV || 'development'}` });
+loadEnvFiles();
 
 export const dataSourceOptions: DataSourceOptions = {
   type: 'postgres',
