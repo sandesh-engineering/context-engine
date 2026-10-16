@@ -172,7 +172,7 @@ describe('ChatService', () => {
       const payload = JSON.parse(event.data as string);
 
       expect(payload.insufficientEvidence).toBe(true);
-      expect(payload.token).toContain('insufficient evidence');
+      expect(payload.token).toContain('unable to answer your question');
       expect(llmProvider.generateStream).not.toHaveBeenCalled();
     });
   });
@@ -200,6 +200,65 @@ describe('ChatService', () => {
 
       expect(payload.error).toBeDefined();
       expect(payload.isComplete).toBe(true);
+    });
+  });
+
+  describe('sendMessageStream - Reranked Retrieval Integration', () => {
+    it('should assemble context in reranked order and propagate reranked status to SSE and metadataJson', async () => {
+      convRepo.findOne.mockResolvedValue({ id: 'conv-123' });
+      retrievalService.retrieveCandidates.mockResolvedValue({
+        candidates: [
+          { id: 'chunk-reranked-1', content: 'Top reranked evidence', similarity: 0.98 },
+          { id: 'chunk-reranked-2', content: 'Second reranked evidence', similarity: 0.85 },
+        ],
+        reranked: true,
+        rerankFallback: false,
+      });
+
+      async function* mockStream() {
+        yield { token: 'Reranked answer token', isComplete: false };
+        yield { token: '', isComplete: true };
+      }
+
+      llmProvider.generateStream.mockReturnValue(mockStream());
+
+      const observable = await service.sendMessageStream({
+        conversationId: 'conv-123',
+        userQuery: 'What is the reranked answer?',
+        topK: 2,
+      });
+
+      const events: MessageEvent[] = [];
+      await new Promise<void>((resolve) => {
+        observable.subscribe({
+          next: (evt) => events.push(evt),
+          complete: () => resolve(),
+        });
+      });
+
+      expect(retrievalService.retrieveCandidates).toHaveBeenCalledWith({
+        query: 'What is the reranked answer?',
+        topK: 2,
+        similarityThreshold: undefined,
+        traceId: undefined,
+      });
+
+      // Verify the final SSE completion event includes reranked flag and citations
+      const finalEvent = events[events.length - 1];
+      const payload = JSON.parse(finalEvent!.data as string);
+      expect(payload.isComplete).toBe(true);
+      expect(payload.reranked).toBe(true);
+      expect(payload.citations).toBeDefined();
+
+      // Verify message repository saved message with reranked metadata
+      expect(msgRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadataJson: expect.objectContaining({
+            reranked: true,
+            rerankFallback: false,
+          }),
+        }),
+      );
     });
   });
 });

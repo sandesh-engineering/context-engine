@@ -1,4 +1,4 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RetrievalQueryValidator } from './retrieval-query-validator.service';
 import {
@@ -10,6 +10,12 @@ import { EMBEDDING_PROVIDER } from '../../ingestion/embeddings/interfaces/embedd
 import { EmbeddingDimensionMismatchException } from '../exceptions/embedding-dimension-mismatch.exception';
 import { AppTracer, SemanticAttributes } from '../../common/telemetry';
 import { StructuredLogger, LogEvents } from '../../common/logger';
+import { AppConfigService } from '../../config/app-config.service';
+import type {
+  IQwenRerankerProvider,
+  RerankCandidate,
+} from '../interfaces/reranker-provider.interface';
+import { RERANKER_PROVIDER } from '../interfaces/reranker-provider.interface';
 
 export interface RetrievalQueryParams {
   query: string;
@@ -25,6 +31,8 @@ export interface RetrievalResult {
   totalRetrieved: number;
   highestSimilarityScore: number;
   traceId?: string;
+  reranked?: boolean;
+  rerankFallback?: boolean;
 }
 
 @Injectable()
@@ -38,6 +46,10 @@ export class RetrievalService {
     @Inject(EMBEDDING_PROVIDER)
     private readonly embeddingProvider: IEmbeddingProvider,
     private readonly configService: ConfigService,
+    private readonly appConfig: AppConfigService,
+    @Optional()
+    @Inject(RERANKER_PROVIDER)
+    private readonly rerankerProvider?: IQwenRerankerProvider,
   ) {
     this.expectedDimensions =
       this.configService.get<number>('EMBEDDING_DIMENSIONS') || 768;
@@ -49,17 +61,27 @@ export class RetrievalService {
    * 2. Generates query vector embedding (sub-span: retrieval.query_embedding)
    * 3. Validates embedding space dimension symmetry
    * 4. Queries pgvector cosine similarity index (sub-span: retrieval.vector_search)
-   * 5. Returns ranked candidate chunks
+   * 5. Optionally invokes Qwen3-Reranker cross-encoder behind RERANKING_ENABLED feature flag
+   * 6. Returns ranked candidate chunks with resilient fallback to vector search order
    */
   async retrieveCandidates(
     params: RetrievalQueryParams,
   ): Promise<RetrievalResult> {
+    const isRerankingEnabled =
+      Boolean(this.appConfig.rerankingEnabled) && Boolean(this.rerankerProvider);
+
+    const requestedTopK = params.topK || 5;
+    const initialVectorTopK = isRerankingEnabled
+      ? Math.max(this.appConfig.rerankerCandidatesTopK || 30, requestedTopK)
+      : requestedTopK;
+
     return AppTracer.traceSpan(
       'retrieval',
       {
         attributes: {
-          [SemanticAttributes.RAG_TOP_K]: params.topK || 5,
+          [SemanticAttributes.RAG_TOP_K]: requestedTopK,
           'query.length': params.query?.length || 0,
+          [SemanticAttributes.RAG_RERANK_ENABLED]: isRerankingEnabled,
         },
       },
       async (span) => {
@@ -67,7 +89,9 @@ export class RetrievalService {
 
         this.logger.logEvent(LogEvents.RETRIEVAL_STARTED, {
           queryLength: sanitizedQuery.length,
-          topK: params.topK,
+          topK: requestedTopK,
+          initialVectorTopK,
+          rerankingEnabled: isRerankingEnabled,
           similarityThreshold: params.similarityThreshold,
           traceId: params.traceId,
         });
@@ -122,19 +146,19 @@ export class RetrievalService {
         });
 
         /* Step 3: Perform pgvector similarity search */
-        const candidates = await AppTracer.traceSpan(
+        const rawCandidates = await AppTracer.traceSpan(
           'retrieval.vector_search',
           {
             attributes: {
               'vector.dimensions': queryVector.length,
-              [SemanticAttributes.RAG_TOP_K]: params.topK || 5,
+              [SemanticAttributes.RAG_TOP_K]: initialVectorTopK,
             },
           },
           async (searchSpan) => {
             const results = await this.vectorSearchRepository.searchSimilarChunks(
               queryVector,
               {
-                topK: params.topK,
+                topK: initialVectorTopK,
                 similarityThreshold: params.similarityThreshold,
               },
             );
@@ -150,36 +174,150 @@ export class RetrievalService {
           },
         );
 
-        const highestSimilarityScore =
-          candidates.length > 0 && candidates[0] ? candidates[0].similarity : 0;
-
-        span.setAttribute(SemanticAttributes.RAG_RETRIEVED_COUNT, candidates.length);
-        span.setAttribute(SemanticAttributes.RAG_HIGHEST_SCORE, highestSimilarityScore);
-
-        /* Step 4: Log metrics and handle fail-fast empty candidates */
-        if (candidates.length === 0) {
+        /* Step 4: Handle zero-candidate fast-fail */
+        if (rawCandidates.length === 0) {
           span.setAttribute(SemanticAttributes.RAG_INSUFFICIENT_EVIDENCE, true);
+          span.setAttribute(SemanticAttributes.RAG_RETRIEVED_COUNT, 0);
+          span.setAttribute(SemanticAttributes.RAG_HIGHEST_SCORE, 0);
+
           this.logger.warnEvent(LogEvents.RETRIEVAL_NO_EVIDENCE, {
             queryLength: sanitizedQuery.length,
             similarityThreshold: params.similarityThreshold,
             traceId: params.traceId,
           });
-        } else {
-          this.logger.logEvent(LogEvents.RETRIEVAL_CANDIDATES_FOUND, {
-            candidateCount: candidates.length,
-            highestSimilarityScore,
-            candidateChunkIds: candidates.map((c) => c.id),
+
+          return {
+            query: sanitizedQuery,
+            queryVector,
+            candidates: [],
+            totalRetrieved: 0,
+            highestSimilarityScore: 0,
             traceId: params.traceId,
-          });
+          };
         }
+
+        /* Step 5: Optional Cross-Encoder Reranking */
+        let finalCandidates: CandidateChunk[] = rawCandidates.slice(0, requestedTopK);
+        let rerankApplied = false;
+        let rerankFallback = false;
+
+        if (isRerankingEnabled && this.rerankerProvider) {
+          try {
+            finalCandidates = await AppTracer.traceSpan(
+              'retrieval.rerank',
+              {
+                attributes: {
+                  [SemanticAttributes.RAG_RERANK_ENABLED]: true,
+                  [SemanticAttributes.RAG_RERANK_MODEL]: this.appConfig.rerankerModelName,
+                  [SemanticAttributes.RAG_RERANK_CANDIDATES_IN]: rawCandidates.length,
+                },
+              },
+              async (rerankSpan) => {
+                this.logger.logEvent(LogEvents.RETRIEVAL_RERANK_STARTED, {
+                  candidatesIn: rawCandidates.length,
+                  model: this.appConfig.rerankerModelName,
+                  traceId: params.traceId,
+                });
+
+                const rerankInput: RerankCandidate[] = rawCandidates.map((c) => ({
+                  id: c.id,
+                  content: c.content,
+                }));
+
+                const rerankResponse = await this.rerankerProvider!.rerank(
+                  sanitizedQuery,
+                  rerankInput,
+                );
+
+                const scoreMap = new Map<string, number>();
+                for (const item of rerankResponse.results) {
+                  scoreMap.set(item.id, item.relevanceScore);
+                }
+
+                // Stable sort descending by relevance score, preserving initial vector similarity order on ties
+                const originalIndexMap = new Map<string, number>();
+                rawCandidates.forEach((c, idx) => originalIndexMap.set(c.id, idx));
+
+                const sorted = [...rawCandidates].sort((a, b) => {
+                  const scoreA = scoreMap.get(a.id) ?? -Infinity;
+                  const scoreB = scoreMap.get(b.id) ?? -Infinity;
+                  if (scoreB !== scoreA) {
+                    return scoreB - scoreA;
+                  }
+                  return (originalIndexMap.get(a.id) ?? 0) - (originalIndexMap.get(b.id) ?? 0);
+                });
+
+                // Update candidate similarity field to reflect reranked relevance score
+                const scoredCandidates = sorted.map((c) => ({
+                  ...c,
+                  similarity: scoreMap.get(c.id) ?? c.similarity,
+                }));
+
+                const finalTopK = params.topK || this.appConfig.rerankerFinalTopK || 5;
+                const selected = scoredCandidates.slice(0, finalTopK);
+
+                rerankSpan.setAttribute(
+                  SemanticAttributes.RAG_RERANK_CANDIDATES_OUT,
+                  selected.length,
+                );
+                rerankSpan.setAttribute(
+                  SemanticAttributes.RAG_RERANK_FALLBACK,
+                  false,
+                );
+                rerankSpan.setAttribute(
+                  SemanticAttributes.RAG_RERANK_DURATION_MS,
+                  rerankResponse.durationMs,
+                );
+
+                this.logger.logEvent(LogEvents.RETRIEVAL_RERANK_COMPLETED, {
+                  candidatesIn: rawCandidates.length,
+                  candidatesOut: selected.length,
+                  durationMs: rerankResponse.durationMs,
+                  highestRerankScore: selected[0]?.similarity,
+                  traceId: params.traceId,
+                });
+
+                rerankApplied = true;
+                return selected;
+              },
+            );
+          } catch (rerankError: any) {
+            rerankFallback = true;
+            this.logger.warnEvent(LogEvents.RETRIEVAL_RERANK_FALLBACK, {
+              reason: rerankError.message,
+              model: this.appConfig.rerankerModelName,
+              fallbackCount: Math.min(rawCandidates.length, requestedTopK),
+              traceId: params.traceId,
+            });
+
+            span.setAttribute(SemanticAttributes.RAG_RERANK_FALLBACK, true);
+            // Fall back to original vector search order
+            finalCandidates = rawCandidates.slice(0, requestedTopK);
+          }
+        }
+
+        const highestSimilarityScore =
+          finalCandidates.length > 0 && finalCandidates[0] ? finalCandidates[0].similarity : 0;
+
+        span.setAttribute(SemanticAttributes.RAG_RETRIEVED_COUNT, finalCandidates.length);
+        span.setAttribute(SemanticAttributes.RAG_HIGHEST_SCORE, highestSimilarityScore);
+
+        this.logger.logEvent(LogEvents.RETRIEVAL_CANDIDATES_FOUND, {
+          candidateCount: finalCandidates.length,
+          highestSimilarityScore,
+          candidateChunkIds: finalCandidates.map((c) => c.id),
+          traceId: params.traceId,
+        });
 
         return {
           query: sanitizedQuery,
           queryVector,
-          candidates,
-          totalRetrieved: candidates.length,
+          candidates: finalCandidates,
+          totalRetrieved: finalCandidates.length,
           highestSimilarityScore,
           traceId: params.traceId,
+          reranked: rerankApplied,
+          rerankFallback,
         };
       },
     );

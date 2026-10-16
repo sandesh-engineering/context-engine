@@ -27,7 +27,9 @@
     "migration:generate": "typeorm-ts-node-commonjs migration:generate -d src/database/data-source.ts",
     "migration:create": "typeorm-ts-node-commonjs migration:create",
     "migration:run": "typeorm-ts-node-commonjs migration:run -d src/database/data-source.ts",
-    "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/database/data-source.ts"
+    "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/database/data-source.ts",
+    "smoke:reranker": "ts-node -r tsconfig-paths/register scripts/smoke-test-reranker.ts",
+    "evaluate:reranker": "ts-node -r tsconfig-paths/register scripts/evaluate-reranking.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.758.0",

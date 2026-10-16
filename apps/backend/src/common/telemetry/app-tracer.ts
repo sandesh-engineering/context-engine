@@ -40,6 +40,12 @@ export const SemanticAttributes = {
   RAG_CANDIDATE_IDS: 'rag.candidate_ids',
   RAG_LLM_MODEL: 'rag.llm.model',
   RAG_INSUFFICIENT_EVIDENCE: 'rag.insufficient_evidence',
+  RAG_RERANK_ENABLED: 'rag.rerank.enabled',
+  RAG_RERANK_MODEL: 'rag.rerank.model',
+  RAG_RERANK_CANDIDATES_IN: 'rag.rerank.candidates_in',
+  RAG_RERANK_CANDIDATES_OUT: 'rag.rerank.candidates_out',
+  RAG_RERANK_FALLBACK: 'rag.rerank.fallback',
+  RAG_RERANK_DURATION_MS: 'rag.rerank.duration_ms',
 
   // Error Classification
   ERROR_TYPE: 'error.type',

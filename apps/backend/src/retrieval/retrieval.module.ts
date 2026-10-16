@@ -9,6 +9,8 @@ import { EMBEDDING_PROVIDER } from '../ingestion/embeddings/interfaces/embedding
 import { OllamaEmbeddingProvider } from '../ingestion/embeddings/providers/ollama-embedding.provider';
 import { GeminiEmbeddingProvider } from '../ingestion/embeddings/providers/gemini-embedding.provider';
 import { AppConfigService } from '../config/app-config.service';
+import { RERANKER_PROVIDER } from './interfaces/reranker-provider.interface';
+import { HttpQwenRerankerProvider } from './providers/http-qwen-reranker.provider';
 
 @Module({
   imports: [
@@ -26,11 +28,17 @@ import { AppConfigService } from '../config/app-config.service';
       provide: EMBEDDING_PROVIDER,
       useClass: OllamaEmbeddingProvider,
     },
+    HttpQwenRerankerProvider,
+    {
+      provide: RERANKER_PROVIDER,
+      useClass: HttpQwenRerankerProvider,
+    },
   ],
   exports: [
     RetrievalService,
     RetrievalQueryValidator,
     VectorSearchRepository,
+    RERANKER_PROVIDER,
   ],
 })
 export class RetrievalModule {}

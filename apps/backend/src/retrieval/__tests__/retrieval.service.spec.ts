@@ -7,12 +7,15 @@ import { EMBEDDING_PROVIDER } from '../../ingestion/embeddings/interfaces/embedd
 import { InvalidQueryException } from '../exceptions/invalid-query.exception';
 import { EmbeddingDimensionMismatchException } from '../exceptions/embedding-dimension-mismatch.exception';
 
+import { AppConfigService } from '../../config/app-config.service';
+
 describe('RetrievalService', () => {
   let service: RetrievalService;
   let queryValidator: RetrievalQueryValidator;
   let vectorSearchRepository: jest.Mocked<VectorSearchRepository>;
   let embeddingProvider: any;
   let configService: jest.Mocked<ConfigService>;
+  let appConfigService: Partial<AppConfigService>;
 
   const mockQueryVector = new Array(768).fill(0.1);
 
@@ -32,6 +35,12 @@ describe('RetrievalService', () => {
       }),
     };
 
+    appConfigService = {
+      rerankingEnabled: false,
+      rerankerCandidatesTopK: 30,
+      rerankerFinalTopK: 5,
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         RetrievalService,
@@ -47,6 +56,10 @@ describe('RetrievalService', () => {
         {
           provide: ConfigService,
           useValue: mockConfig,
+        },
+        {
+          provide: AppConfigService,
+          useValue: appConfigService,
         },
       ],
     }).compile();

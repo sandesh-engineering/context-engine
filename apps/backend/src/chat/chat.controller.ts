@@ -116,6 +116,8 @@ export class ChatController {
       userQuery: dto.query,
       userId: dto.userId,
       title: dto.title,
+      topK: dto.topK,
+      similarityThreshold: dto.similarityThreshold,
       signal: abortController.signal,
       traceId: dto.traceId,
     });
@@ -161,6 +163,8 @@ export class ChatController {
       userQuery: dto.query,
       userId: dto.userId,
       title: dto.title,
+      topK: dto.topK,
+      similarityThreshold: dto.similarityThreshold,
       signal: abortController.signal,
       traceId: dto.traceId,
     });
