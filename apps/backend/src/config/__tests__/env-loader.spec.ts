@@ -47,4 +47,33 @@ describe('Environment Loader (env-loader)', () => {
     // PORT from apps/backend/.env should be loaded
     expect(process.env.PORT).toBe('5001');
   });
+
+  it('should validate reranker environment defaults and custom overrides', () => {
+    const defaults = envSchema.parse({});
+    expect(defaults.RERANKING_ENABLED).toBe(false);
+    expect(defaults.RERANKER_BASE_URL).toBe('http://localhost:11434');
+    expect(defaults.RERANKER_ENDPOINT_PATH).toBe('/api/rerank');
+    expect(defaults.RERANKER_MODEL_NAME).toBe('qwen3-reranker');
+    expect(defaults.RERANKER_TIMEOUT_MS).toBe(5000);
+    expect(defaults.RERANKER_CANDIDATES_TOP_K).toBe(30);
+    expect(defaults.RERANKER_FINAL_TOP_K).toBe(5);
+
+    const overridden = envSchema.parse({
+      RERANKING_ENABLED: 'true',
+      RERANKER_BASE_URL: 'http://127.0.0.1:11434',
+      RERANKER_ENDPOINT_PATH: '/v1/rerank',
+      RERANKER_MODEL_NAME: 'custom-reranker',
+      RERANKER_TIMEOUT_MS: '8000',
+      RERANKER_CANDIDATES_TOP_K: '50',
+      RERANKER_FINAL_TOP_K: '10',
+    });
+    expect(overridden.RERANKING_ENABLED).toBe(true);
+    expect(overridden.RERANKER_BASE_URL).toBe('http://127.0.0.1:11434');
+    expect(overridden.RERANKER_ENDPOINT_PATH).toBe('/v1/rerank');
+    expect(overridden.RERANKER_MODEL_NAME).toBe('custom-reranker');
+    expect(overridden.RERANKER_TIMEOUT_MS).toBe(8000);
+    expect(overridden.RERANKER_CANDIDATES_TOP_K).toBe(50);
+    expect(overridden.RERANKER_FINAL_TOP_K).toBe(10);
+  });
 });
+

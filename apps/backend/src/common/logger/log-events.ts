@@ -55,6 +55,9 @@ export const LogEvents = {
   RETRIEVAL_CANDIDATES_FOUND: 'retrieval.candidates.found',
   RETRIEVAL_NO_EVIDENCE: 'retrieval.no_evidence',
   RETRIEVAL_FAILED: 'retrieval.failed',
+  RETRIEVAL_RERANK_STARTED: 'retrieval.rerank.started',
+  RETRIEVAL_RERANK_COMPLETED: 'retrieval.rerank.completed',
+  RETRIEVAL_RERANK_FALLBACK: 'retrieval.rerank.fallback',
 
   // Chat
   CHAT_SESSION_CREATED: 'chat.session.created',

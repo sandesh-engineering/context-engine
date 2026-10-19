@@ -33,4 +33,18 @@ export class SendMessageDto {
   @IsOptional()
   @IsString()
   traceId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Optional top-K candidate chunks to retrieve and rank',
+    example: 5,
+  })
+  @IsOptional()
+  topK?: number;
+
+  @ApiPropertyOptional({
+    description: 'Optional minimum similarity threshold filter',
+    example: 0.5,
+  })
+  @IsOptional()
+  similarityThreshold?: number;
 }

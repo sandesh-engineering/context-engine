@@ -16,11 +16,15 @@ import { LLM_PROVIDER } from '../interfaces/llm-provider.interface';
 import { AppTracer, SemanticAttributes } from '../../common/telemetry';
 import { StructuredLogger, LogEvents } from '../../common/logger';
 
+import { CitationMetadata } from '../entities/message.entity';
+
 export interface SendMessageParams {
   conversationId?: string;
   userQuery: string;
   userId?: string;
   title?: string;
+  topK?: number;
+  similarityThreshold?: number;
   signal?: AbortSignal;
   traceId?: string;
 }
@@ -31,6 +35,8 @@ export interface StreamEventPayload {
   conversationId?: string;
   messageId?: string;
   insufficientEvidence?: boolean;
+  citations?: CitationMetadata[];
+  reranked?: boolean;
 }
 
 @Injectable()
@@ -229,9 +235,11 @@ export class ChatService {
     conversation: ConversationEntity,
     subject: Subject<MessageEvent>,
   ): Promise<void> {
-    /* Step 2: Trigger vector candidate retrieval */
+    /* Step 2: Trigger candidate retrieval (with cross-encoder reranking if enabled) */
     const retrievalResult = await this.retrievalService.retrieveCandidates({
       query: params.userQuery,
+      topK: params.topK,
+      similarityThreshold: params.similarityThreshold,
       traceId: params.traceId,
     });
 
@@ -245,7 +253,11 @@ export class ChatService {
         role: MessageRole.ASSISTANT,
         content: fallbackContent,
         insufficientEvidence: true,
-        metadataJson: { traceId: params.traceId },
+        metadataJson: {
+          traceId: params.traceId,
+          reranked: retrievalResult.reranked ?? false,
+          rerankFallback: retrievalResult.rerankFallback ?? false,
+        },
       });
 
       const savedFallbackMsg = await this.messageRepository.save(
@@ -259,6 +271,7 @@ export class ChatService {
           conversationId: conversation.id,
           messageId: savedFallbackMsg.id,
           insufficientEvidence: true,
+          reranked: retrievalResult.reranked ?? false,
         } as StreamEventPayload),
       } as MessageEvent);
 
@@ -272,6 +285,7 @@ export class ChatService {
       {
         attributes: {
           'candidate.count': retrievalResult.candidates.length,
+          [SemanticAttributes.RAG_RERANK_ENABLED]: retrievalResult.reranked ?? false,
         },
       },
       async () => {
@@ -284,6 +298,7 @@ export class ChatService {
           conversationId: conversation.id,
           evidenceChunkCount: result.evidenceChunkIds.length,
           citationCount: result.citations.length,
+          reranked: retrievalResult.reranked ?? false,
         });
 
         return result;
@@ -389,6 +404,8 @@ export class ChatService {
             metadataJson: {
               traceId: params.traceId,
               aborted: isAborted,
+              reranked: retrievalResult.reranked ?? false,
+              rerankFallback: retrievalResult.rerankFallback ?? false,
             },
           });
 
@@ -403,6 +420,8 @@ export class ChatService {
               conversationId: conversation.id,
               messageId: savedAssistantMsg.id,
               insufficientEvidence: false,
+              citations: assembledContext.citations,
+              reranked: retrievalResult.reranked ?? false,
             } as StreamEventPayload),
           } as MessageEvent);
         } catch (llmError) {

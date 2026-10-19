@@ -245,4 +245,34 @@ export class AppConfigService {
   get circuitBreakerResetTimeoutMs(): number {
     return this.config.get('CIRCUIT_BREAKER_RESET_TIMEOUT_MS', { infer: true }) ?? 30000;
   }
+
+  /* Neural Cross-Encoder Reranker (Qwen3-Reranker via Ollama) */
+  get rerankingEnabled(): boolean {
+    return this.config.get('RERANKING_ENABLED', { infer: true }) ?? false;
+  }
+
+  get rerankerBaseUrl(): string {
+    return this.config.get('RERANKER_BASE_URL', { infer: true }) ?? 'http://localhost:11434';
+  }
+
+  get rerankerEndpointPath(): string {
+    return this.config.get('RERANKER_ENDPOINT_PATH', { infer: true }) ?? '/api/rerank';
+  }
+
+  get rerankerModelName(): string {
+    return this.config.get('RERANKER_MODEL_NAME', { infer: true }) ?? 'qwen3-reranker';
+  }
+
+  get rerankerTimeoutMs(): number {
+    return this.config.get('RERANKER_TIMEOUT_MS', { infer: true }) ?? 5000;
+  }
+
+  get rerankerCandidatesTopK(): number {
+    return this.config.get('RERANKER_CANDIDATES_TOP_K', { infer: true }) ?? 30;
+  }
+
+  get rerankerFinalTopK(): number {
+    return this.config.get('RERANKER_FINAL_TOP_K', { infer: true }) ?? 5;
+  }
 }
+

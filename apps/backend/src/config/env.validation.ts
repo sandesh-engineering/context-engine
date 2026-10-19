@@ -106,6 +106,17 @@ export const envSchema = z.object({
   GEMINI_CHAT_MODEL: z.string().default('gemini-2.5-flash'),
   GEMINI_EMBEDDING_MODEL: z.string().default('text-embedding-004'),
 
+  /* Neural Cross-Encoder Reranker (Qwen3-Reranker via Ollama) */
+  RERANKING_ENABLED: z
+    .preprocess((val) => val === 'true' || val === true, z.boolean())
+    .default(false),
+  RERANKER_BASE_URL: z.string().default('http://localhost:11434'),
+  RERANKER_ENDPOINT_PATH: z.string().default('/api/rerank'),
+  RERANKER_MODEL_NAME: z.string().default('qwen3-reranker'),
+  RERANKER_TIMEOUT_MS: z.coerce.number().min(100).default(5000),
+  RERANKER_CANDIDATES_TOP_K: z.coerce.number().min(1).default(30),
+  RERANKER_FINAL_TOP_K: z.coerce.number().min(1).default(5),
+
   /* Resilience & Circuit Breaker */
   CIRCUIT_BREAKER_FAILURE_THRESHOLD: z.coerce.number().default(5),
   CIRCUIT_BREAKER_RESET_TIMEOUT_MS: z.coerce.number().default(30000),
