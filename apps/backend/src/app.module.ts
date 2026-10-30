@@ -12,6 +12,7 @@ import { IngestionModule } from './ingestion/ingestion.module';
 import { IngestionWorkerModule } from './ingestion/worker/ingestion-worker.module';
 import { RetrievalModule } from './retrieval/retrieval.module';
 import { ChatModule } from './chat/chat.module';
+import { MetricsModule } from './metrics/metrics.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { ChatModule } from './chat/chat.module';
     IngestionWorkerModule,
     RetrievalModule,
     ChatModule,
+    MetricsModule,
   ],
   controllers: [AppController],
   providers: [AppService, AppConfigService],

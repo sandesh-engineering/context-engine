@@ -256,7 +256,7 @@ export class AppConfigService {
   }
 
   get rerankerEndpointPath(): string {
-    return this.config.get('RERANKER_ENDPOINT_PATH', { infer: true }) ?? '/api/rerank';
+    return this.config.get('RERANKER_ENDPOINT_PATH', { infer: true }) ?? '/api/generate';
   }
 
   get rerankerModelName(): string {
@@ -264,7 +264,7 @@ export class AppConfigService {
   }
 
   get rerankerTimeoutMs(): number {
-    return this.config.get('RERANKER_TIMEOUT_MS', { infer: true }) ?? 5000;
+    return this.config.get('RERANKER_TIMEOUT_MS', { infer: true }) ?? 15000;
   }
 
   get rerankerCandidatesTopK(): number {
@@ -273,6 +273,27 @@ export class AppConfigService {
 
   get rerankerFinalTopK(): number {
     return this.config.get('RERANKER_FINAL_TOP_K', { infer: true }) ?? 5;
+  }
+
+  /* Hybrid Search (pgvector + PostgreSQL Full-Text Search + RRF) */
+  get hybridSearchEnabled(): boolean {
+    return this.config.get('HYBRID_SEARCH_ENABLED', { infer: true }) ?? false;
+  }
+
+  get hybridSearchVectorTopK(): number {
+    return this.config.get('HYBRID_SEARCH_VECTOR_TOP_K', { infer: true }) ?? 20;
+  }
+
+  get hybridSearchKeywordTopK(): number {
+    return this.config.get('HYBRID_SEARCH_KEYWORD_TOP_K', { infer: true }) ?? 20;
+  }
+
+  get hybridSearchRrfK(): number {
+    return this.config.get('HYBRID_SEARCH_RRF_K', { infer: true }) ?? 60;
+  }
+
+  get hybridSearchFinalTopK(): number {
+    return this.config.get('HYBRID_SEARCH_FINAL_TOP_K', { infer: true }) ?? 8;
   }
 }
 

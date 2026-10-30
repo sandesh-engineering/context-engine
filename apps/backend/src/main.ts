@@ -18,9 +18,14 @@ async function bootstrap() {
     credentials: true,
   });
 
-  app.setGlobalPrefix('api');
+  app.setGlobalPrefix('api', {
+    exclude: ['metrics', ''],
+  });
 
-  app.enableVersioning({ type: VersioningType.URI });
+  app.enableVersioning({
+    type: VersioningType.URI,
+    defaultVersion: '1',
+  });
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -33,7 +38,7 @@ async function bootstrap() {
     }),
   );
 
-  await app.listen(config.port);
+  await app.listen(config.port, '0.0.0.0');
   console.log(`Backend running on http://localhost:${config.port}/api`);
 }
 

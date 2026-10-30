@@ -17,6 +17,8 @@ import type {
 } from '../interfaces/reranker-provider.interface';
 import { RERANKER_PROVIDER } from '../interfaces/reranker-provider.interface';
 
+import { reciprocalRankFusion } from '../utils/reciprocal-rank-fusion';
+
 export interface RetrievalQueryParams {
   query: string;
   topK?: number;
@@ -33,6 +35,7 @@ export interface RetrievalResult {
   traceId?: string;
   reranked?: boolean;
   rerankFallback?: boolean;
+  hybrid?: boolean;
 }
 
 @Injectable()
@@ -67,10 +70,11 @@ export class RetrievalService {
   async retrieveCandidates(
     params: RetrievalQueryParams,
   ): Promise<RetrievalResult> {
+    const isHybridEnabled = Boolean(this.appConfig.hybridSearchEnabled);
     const isRerankingEnabled =
       Boolean(this.appConfig.rerankingEnabled) && Boolean(this.rerankerProvider);
 
-    const requestedTopK = params.topK || 5;
+    const requestedTopK = params.topK || (isHybridEnabled ? this.appConfig.hybridSearchFinalTopK || 8 : 5);
     const initialVectorTopK = isRerankingEnabled
       ? Math.max(this.appConfig.rerankerCandidatesTopK || 30, requestedTopK)
       : requestedTopK;
@@ -82,16 +86,29 @@ export class RetrievalService {
           [SemanticAttributes.RAG_TOP_K]: requestedTopK,
           'query.length': params.query?.length || 0,
           [SemanticAttributes.RAG_RERANK_ENABLED]: isRerankingEnabled,
+          [SemanticAttributes.RAG_HYBRID_ENABLED]: isHybridEnabled,
         },
       },
       async (span) => {
         const sanitizedQuery = this.queryValidator.validate(params.query);
+
+        if (isHybridEnabled) {
+          this.logger.logEvent(LogEvents.RETRIEVAL_HYBRID_STARTED, {
+            queryLength: sanitizedQuery.length,
+            topK: requestedTopK,
+            vectorTopK: this.appConfig.hybridSearchVectorTopK || 20,
+            keywordTopK: this.appConfig.hybridSearchKeywordTopK || 20,
+            rrfK: this.appConfig.hybridSearchRrfK || 60,
+            traceId: params.traceId,
+          });
+        }
 
         this.logger.logEvent(LogEvents.RETRIEVAL_STARTED, {
           queryLength: sanitizedQuery.length,
           topK: requestedTopK,
           initialVectorTopK,
           rerankingEnabled: isRerankingEnabled,
+          hybridEnabled: isHybridEnabled,
           similarityThreshold: params.similarityThreshold,
           traceId: params.traceId,
         });
@@ -145,34 +162,136 @@ export class RetrievalService {
           traceId: params.traceId,
         });
 
-        /* Step 3: Perform pgvector similarity search */
-        const rawCandidates = await AppTracer.traceSpan(
-          'retrieval.vector_search',
-          {
-            attributes: {
-              'vector.dimensions': queryVector.length,
-              [SemanticAttributes.RAG_TOP_K]: initialVectorTopK,
-            },
-          },
-          async (searchSpan) => {
-            const results = await this.vectorSearchRepository.searchSimilarChunks(
-              queryVector,
-              {
-                topK: initialVectorTopK,
-                similarityThreshold: params.similarityThreshold,
-              },
-            );
+        /* Step 3: Candidate retrieval (Hybrid pgvector + Keyword FTS or Vector-only) */
+        let rawCandidates: CandidateChunk[];
 
-            searchSpan.setAttribute(SemanticAttributes.RAG_RETRIEVED_COUNT, results.length);
-            if (results.length > 0 && results[0]) {
-              searchSpan.setAttribute(
-                SemanticAttributes.RAG_HIGHEST_SCORE,
-                results[0].similarity,
+        if (isHybridEnabled) {
+          const vectorTopK = this.appConfig.hybridSearchVectorTopK || 20;
+          const keywordTopK = this.appConfig.hybridSearchKeywordTopK || 20;
+          const rrfK = this.appConfig.hybridSearchRrfK || 60;
+          const initialPoolTopK = isRerankingEnabled
+            ? Math.max(this.appConfig.rerankerCandidatesTopK || 30, requestedTopK)
+            : requestedTopK;
+
+          const vectorPromise = AppTracer.traceSpan(
+            'retrieval.vector_search',
+            {
+              attributes: {
+                'vector.dimensions': queryVector.length,
+                [SemanticAttributes.RAG_TOP_K]: vectorTopK,
+              },
+            },
+            async (searchSpan) => {
+              const results = await this.vectorSearchRepository.searchSimilarChunks(
+                queryVector,
+                {
+                  topK: vectorTopK,
+                  similarityThreshold: params.similarityThreshold,
+                },
               );
-            }
-            return results;
-          },
-        );
+
+              searchSpan.setAttribute(SemanticAttributes.RAG_RETRIEVED_COUNT, results.length);
+              if (results.length > 0 && results[0]) {
+                searchSpan.setAttribute(
+                  SemanticAttributes.RAG_HIGHEST_SCORE,
+                  results[0].similarity,
+                );
+              }
+              return results;
+            },
+          );
+
+          const keywordPromise = AppTracer.traceSpan(
+            'retrieval.keyword_search',
+            {
+              attributes: {
+                [SemanticAttributes.RAG_TOP_K]: keywordTopK,
+              },
+            },
+            async (kwSpan) => {
+              try {
+                const results = await this.vectorSearchRepository.searchByKeywords(
+                  sanitizedQuery,
+                  { topK: keywordTopK },
+                );
+                kwSpan.setAttribute(SemanticAttributes.RAG_RETRIEVED_COUNT, results.length);
+                this.logger.debugEvent(LogEvents.RETRIEVAL_KEYWORD_SEARCHED, {
+                  keywordCandidatesCount: results.length,
+                  traceId: params.traceId,
+                });
+                return results;
+              } catch (err: any) {
+                this.logger.warnEvent(LogEvents.RETRIEVAL_KEYWORD_FALLBACK, {
+                  reason: err.message,
+                  traceId: params.traceId,
+                });
+                kwSpan.setAttribute(SemanticAttributes.RAG_KEYWORD_FALLBACK, true);
+                return [];
+              }
+            },
+          );
+
+          const [vectorCandidates, keywordCandidates] = await Promise.all([
+            vectorPromise,
+            keywordPromise,
+          ]);
+
+          rawCandidates = await AppTracer.traceSpan(
+            'retrieval.rrf_fusion',
+            {
+              attributes: {
+                [SemanticAttributes.RAG_VECTOR_RETRIEVED_COUNT]: vectorCandidates.length,
+                [SemanticAttributes.RAG_KEYWORD_RETRIEVED_COUNT]: keywordCandidates.length,
+              },
+            },
+            async (fusionSpan) => {
+              const fused = reciprocalRankFusion(
+                vectorCandidates,
+                keywordCandidates,
+                {
+                  k: rrfK,
+                  topN: initialPoolTopK,
+                },
+              );
+              fusionSpan.setAttribute(SemanticAttributes.RAG_RRF_FUSED_COUNT, fused.length);
+              this.logger.debugEvent(LogEvents.RETRIEVAL_RRF_FUSED, {
+                vectorCount: vectorCandidates.length,
+                keywordCount: keywordCandidates.length,
+                fusedCount: fused.length,
+                traceId: params.traceId,
+              });
+              return fused;
+            },
+          );
+        } else {
+          rawCandidates = await AppTracer.traceSpan(
+            'retrieval.vector_search',
+            {
+              attributes: {
+                'vector.dimensions': queryVector.length,
+                [SemanticAttributes.RAG_TOP_K]: initialVectorTopK,
+              },
+            },
+            async (searchSpan) => {
+              const results = await this.vectorSearchRepository.searchSimilarChunks(
+                queryVector,
+                {
+                  topK: initialVectorTopK,
+                  similarityThreshold: params.similarityThreshold,
+                },
+              );
+
+              searchSpan.setAttribute(SemanticAttributes.RAG_RETRIEVED_COUNT, results.length);
+              if (results.length > 0 && results[0]) {
+                searchSpan.setAttribute(
+                  SemanticAttributes.RAG_HIGHEST_SCORE,
+                  results[0].similarity,
+                );
+              }
+              return results;
+            },
+          );
+        }
 
         /* Step 4: Handle zero-candidate fast-fail */
         if (rawCandidates.length === 0) {
@@ -193,6 +312,7 @@ export class RetrievalService {
             totalRetrieved: 0,
             highestSimilarityScore: 0,
             traceId: params.traceId,
+            hybrid: isHybridEnabled,
           };
         }
 
@@ -318,6 +438,7 @@ export class RetrievalService {
           traceId: params.traceId,
           reranked: rerankApplied,
           rerankFallback,
+          hybrid: isHybridEnabled,
         };
       },
     );

@@ -9,6 +9,7 @@ import { DataSource, Repository } from 'typeorm';
 import { Observable, Subject } from 'rxjs';
 import { ConversationEntity } from '../entities/conversation.entity';
 import { MessageEntity, MessageRole } from '../entities/message.entity';
+import { GetConversationsDto, PaginatedConversationsResponse } from '../dto';
 import { RetrievalService } from '../../retrieval/services/retrieval.service';
 import { ChatContextAssembler } from './chat-context-assembler.service';
 import type { ILlmProvider, MessageHistory } from '../interfaces/llm-provider.interface';
@@ -76,16 +77,50 @@ export class ChatService {
   }
 
   /**
-   * Retrieves all conversation sessions, optionally filtered by user ID.
+   * Retrieves paginated conversation sessions, optionally filtered by user ID.
    */
-  async getAllConversations(userId?: string): Promise<ConversationEntity[]> {
+  async getAllConversations(
+    query?: GetConversationsDto | string,
+    pageParam?: number,
+    limitParam?: number,
+  ): Promise<PaginatedConversationsResponse<ConversationEntity>> {
+    let userId: string | undefined;
+    let page = 1;
+    let limit = 20;
+
+    if (typeof query === 'string') {
+      userId = query;
+      page = pageParam ?? 1;
+      limit = limitParam ?? 20;
+    } else if (query) {
+      userId = query.userId;
+      page = query.page ?? 1;
+      limit = query.limit ?? 20;
+    }
+
     const where = userId ? { userId } : {};
-    return this.conversationRepository.find({
+    const [items, total] = await this.conversationRepository.findAndCount({
       where,
       order: {
         updatedAt: 'DESC',
       },
+      skip: (page - 1) * limit,
+      take: limit,
     });
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      items,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+      },
+    };
   }
 
   /**

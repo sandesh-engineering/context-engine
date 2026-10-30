@@ -52,9 +52,9 @@ describe('Environment Loader (env-loader)', () => {
     const defaults = envSchema.parse({});
     expect(defaults.RERANKING_ENABLED).toBe(false);
     expect(defaults.RERANKER_BASE_URL).toBe('http://localhost:11434');
-    expect(defaults.RERANKER_ENDPOINT_PATH).toBe('/api/rerank');
+    expect(defaults.RERANKER_ENDPOINT_PATH).toBe('/api/generate');
     expect(defaults.RERANKER_MODEL_NAME).toBe('qwen3-reranker');
-    expect(defaults.RERANKER_TIMEOUT_MS).toBe(5000);
+    expect(defaults.RERANKER_TIMEOUT_MS).toBe(15000);
     expect(defaults.RERANKER_CANDIDATES_TOP_K).toBe(30);
     expect(defaults.RERANKER_FINAL_TOP_K).toBe(5);
 

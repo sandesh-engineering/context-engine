@@ -1,4 +1,6 @@
 import { loadEnvFiles } from '../src/config/env-loader';
+import { HttpQwenRerankerProvider } from '../src/retrieval/providers/http-qwen-reranker.provider';
+import { AppConfigService } from '../src/config/app-config.service';
 
 loadEnvFiles();
 
@@ -125,16 +127,25 @@ const EVALUATION_TEST_CASES: EvaluationQueryCase[] = [
 
 async function evaluateReranking(): Promise<void> {
   const baseUrl = process.env.RERANKER_BASE_URL || 'http://localhost:11434';
-  const endpointPath = process.env.RERANKER_ENDPOINT_PATH || '/api/rerank';
-  const modelName = process.env.RERANKER_MODEL_NAME || 'qwen3-reranker';
-  const timeoutMs = Number(process.env.RERANKER_TIMEOUT_MS) || 5000;
+  const endpointPath = process.env.RERANKER_ENDPOINT_PATH || '/api/generate';
+  const modelName = process.env.RERANKER_MODEL_NAME || 'dengcao/Qwen3-Reranker-0.6B:Q8_0';
+  const timeoutMs = Number(process.env.RERANKER_TIMEOUT_MS) || 15000;
 
-  const url = `${baseUrl.replace(/\/$/, '')}${endpointPath.startsWith('/') ? endpointPath : `/${endpointPath}`}`;
+  const mockAppConfig = {
+    rerankerBaseUrl: baseUrl,
+    rerankerEndpointPath: endpointPath,
+    rerankerModelName: modelName,
+    rerankerTimeoutMs: timeoutMs,
+    circuitBreakerFailureThreshold: 5,
+    circuitBreakerResetTimeoutMs: 30000,
+  } as unknown as AppConfigService;
+
+  const provider = new HttpQwenRerankerProvider(mockAppConfig);
 
   console.log('='.repeat(90));
-  console.log('QWEN3-RERANKER EVALUATION HARNESS');
+  console.log('QWEN3-RERANKER EVALUATION HARNESS (OLLAMA /api/generate)');
   console.log('='.repeat(90));
-  console.log(`Endpoint:    ${url}`);
+  console.log(`Endpoint:    ${baseUrl}${endpointPath.startsWith('/') ? endpointPath : `/${endpointPath}`}`);
   console.log(`Model:       ${modelName}`);
   console.log(`Timeout:     ${timeoutMs}ms`);
   console.log(`Test Cases:  ${EVALUATION_TEST_CASES.length}\n`);
@@ -156,37 +167,17 @@ async function evaluateReranking(): Promise<void> {
     });
 
     try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-      const payload = {
-        model: modelName,
-        query: testCase.query,
-        documents: testCase.candidates.map((c) => c.content),
-      };
-
       const start = Date.now();
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
-      clearTimeout(timer);
+      const response = await provider.rerank(
+        testCase.query,
+        testCase.candidates.map((c) => ({ id: c.id, content: c.content })),
+      );
       const latencyMs = Date.now() - start;
       totalDurationMs += latencyMs;
 
-      if (!response.ok) {
-        console.warn(`  [WARN] Endpoint returned HTTP ${response.status}: Falling back to original vector order.`);
-        continue;
-      }
-
-      const json = (await response.json()) as any;
-      const rawResults = json.results || json.data || [];
-
-      const scored = testCase.candidates.map((c, index) => {
-        const found = rawResults.find((r: any) => r.index === index);
-        const rerankScore = found ? (found.relevance_score ?? found.score ?? 0) : 0;
+      const scored = testCase.candidates.map((c) => {
+        const found = response.results.find((r) => r.id === c.id);
+        const rerankScore = found ? found.relevanceScore : 0;
         return {
           ...c,
           originalIndex: sortedByVector.findIndex((sc) => sc.id === c.id),

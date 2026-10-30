@@ -44,13 +44,17 @@ describe('HttpQwenRerankerProvider', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('should successfully score candidates and map response indices to chunk IDs', async () => {
+  it('should format payload for Ollama /api/generate and parse stringified JSON response', async () => {
     const mockResponseBody = {
-      results: [
-        { index: 0, relevance_score: 0.942 },
-        { index: 1, relevance_score: 0.412 },
-        { index: 2, relevance_score: 0.015 },
-      ],
+      model: 'qwen3-reranker',
+      response: JSON.stringify({
+        results: [
+          { index: 0, relevance_score: 0.942 },
+          { index: 1, relevance_score: 0.412 },
+          { index: 2, relevance_score: 0.015 },
+        ],
+      }),
+      done: true,
     };
 
     mockFetch.mockResolvedValueOnce({
@@ -62,6 +66,17 @@ describe('HttpQwenRerankerProvider', () => {
     const response = await provider.rerank('vector search question', sampleCandidates);
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [calledUrl, calledInit] = mockFetch.mock.calls[0];
+    expect(calledUrl).toBe('http://localhost:11434/api/generate');
+    const sentBody = JSON.parse(calledInit.body);
+    expect(sentBody.model).toBe('qwen3-reranker');
+    expect(sentBody.system).toContain('You are an expert search relevance evaluator');
+    expect(sentBody.stream).toBe(false);
+    expect(sentBody.options).toEqual({ temperature: 0 });
+    expect(sentBody.prompt).toContain('vector search question');
+    expect(sentBody.prompt).toContain('[Candidate 0]');
+    expect(sentBody.prompt).toContain('PostgreSQL pgvector cosine index details');
+
     expect(response.results).toHaveLength(3);
     expect(response.results[0]).toEqual({
       id: 'chunk-1',
@@ -78,17 +93,20 @@ describe('HttpQwenRerankerProvider', () => {
       index: 2,
       relevanceScore: 0.015,
     });
-    expect(response.modelName).toBe('qwen3-reranker');
   });
 
-  it('should correctly map chunk IDs even when model returns results in permuted order', async () => {
-    // Model returns chunk at index 2 first, then index 0, then index 1
+  it('should correctly sort results descending and tie-break by original index', async () => {
+    // Model returns chunk at index 2 with 0.88, index 0 with 0.88, index 1 with 0.12
     const mockResponseBody = {
-      results: [
-        { index: 2, score: 0.88 },
-        { index: 0, score: 0.65 },
-        { index: 1, score: 0.12 },
-      ],
+      model: 'qwen3-reranker',
+      response: JSON.stringify({
+        results: [
+          { index: 2, score: 0.88 },
+          { index: 0, score: 0.88 },
+          { index: 1, score: 0.12 },
+        ],
+      }),
+      done: true,
     };
 
     mockFetch.mockResolvedValueOnce({
@@ -99,17 +117,122 @@ describe('HttpQwenRerankerProvider', () => {
 
     const response = await provider.rerank('test query', sampleCandidates);
 
-    expect(response.results[0]!.id).toBe('chunk-3');
-    expect(response.results[0]!.index).toBe(2);
+    // Index 0 and 2 tie at 0.88, so index 0 comes first (deterministic tie-breaking)
+    expect(response.results[0]!.id).toBe('chunk-1');
+    expect(response.results[0]!.index).toBe(0);
     expect(response.results[0]!.relevanceScore).toBe(0.88);
 
-    expect(response.results[1]!.id).toBe('chunk-1');
-    expect(response.results[1]!.index).toBe(0);
-    expect(response.results[1]!.relevanceScore).toBe(0.65);
+    expect(response.results[1]!.id).toBe('chunk-3');
+    expect(response.results[1]!.index).toBe(2);
+    expect(response.results[1]!.relevanceScore).toBe(0.88);
 
     expect(response.results[2]!.id).toBe('chunk-2');
     expect(response.results[2]!.index).toBe(1);
     expect(response.results[2]!.relevanceScore).toBe(0.12);
+  });
+
+  it('should reject response with missing candidate indices', async () => {
+    const mockResponseBody = {
+      response: JSON.stringify({
+        results: [
+          { index: 0, relevance_score: 0.9 },
+          { index: 1, relevance_score: 0.5 },
+          // index 2 is missing
+        ],
+      }),
+    };
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => mockResponseBody,
+    });
+
+    await expect(provider.rerank('query', sampleCandidates)).rejects.toThrow(
+      /missing scores for candidate indices: \[2\]/,
+    );
+  });
+
+  it('should reject response with duplicate candidate indices', async () => {
+    const mockResponseBody = {
+      response: JSON.stringify({
+        results: [
+          { index: 0, relevance_score: 0.9 },
+          { index: 0, relevance_score: 0.7 },
+          { index: 1, relevance_score: 0.5 },
+        ],
+      }),
+    };
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => mockResponseBody,
+    });
+
+    await expect(provider.rerank('query', sampleCandidates)).rejects.toThrow(
+      /duplicate candidate index '0'/,
+    );
+  });
+
+  it('should reject response with out-of-range candidate indices', async () => {
+    const mockResponseBody = {
+      response: JSON.stringify({
+        results: [
+          { index: 99, relevance_score: 0.9 },
+          { index: 1, relevance_score: 0.5 },
+          { index: 2, relevance_score: 0.1 },
+        ],
+      }),
+    };
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => mockResponseBody,
+    });
+
+    await expect(provider.rerank('query', sampleCandidates)).rejects.toThrow(
+      /invalid candidate index '99'/,
+    );
+  });
+
+  it('should reject response with invalid or out-of-range scores', async () => {
+    const mockResponseBody = {
+      response: JSON.stringify({
+        results: [
+          { index: 0, relevance_score: 1.5 }, // Score > 1.0
+          { index: 1, relevance_score: 0.5 },
+          { index: 2, relevance_score: 0.1 },
+        ],
+      }),
+    };
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => mockResponseBody,
+    });
+
+    await expect(provider.rerank('query', sampleCandidates)).rejects.toThrow(
+      /Invalid relevance score '1.5'.*Expected finite number in \[0.0, 1.0\]/,
+    );
+  });
+
+  it('should reject response when model output is not valid JSON without silent fallback', async () => {
+    const mockResponseBody = {
+      response: 'I am an AI and cannot evaluate these documents.',
+    };
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => mockResponseBody,
+    });
+
+    await expect(provider.rerank('query', sampleCandidates)).rejects.toThrow(
+      /Reranker model output is not valid JSON/,
+    );
   });
 
   it('should handle HTTP error status and throw descriptive error', async () => {
@@ -133,32 +256,6 @@ describe('HttpQwenRerankerProvider', () => {
 
     await expect(provider.rerank('query', sampleCandidates)).rejects.toThrow(
       /timed out after 1000ms/,
-    );
-  });
-
-  it('should reject malformed payload missing results or data array', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: async () => ({ status: 'success' }), // Missing results
-    });
-
-    await expect(provider.rerank('query', sampleCandidates)).rejects.toThrow(
-      /Missing results array/,
-    );
-  });
-
-  it('should reject out-of-bounds candidate index returned by server', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        results: [{ index: 99, relevance_score: 0.8 }], // Out of bounds
-      }),
-    });
-
-    await expect(provider.rerank('query', sampleCandidates)).rejects.toThrow(
-      /invalid candidate index '99'/,
     );
   });
 

@@ -26,6 +26,7 @@ describe('ChatService', () => {
       save: jest.fn((entity) => Promise.resolve(entity)),
       findOne: jest.fn(),
       find: jest.fn().mockResolvedValue([{ id: 'conv-123', title: 'Test Title' }]),
+      findAndCount: jest.fn().mockResolvedValue([[{ id: 'conv-123', title: 'Test Title' }], 1]),
     };
 
     msgRepo = {
@@ -81,13 +82,18 @@ describe('ChatService', () => {
       expect(conv.id).toBe('conv-123');
     });
 
-    it('should retrieve all conversations', async () => {
-      const convs = await service.getAllConversations('user-1');
-      expect(convRepo.find).toHaveBeenCalledWith({
+    it('should retrieve paginated conversations', async () => {
+      const result = await service.getAllConversations({ userId: 'user-1', page: 1, limit: 20 });
+      expect(convRepo.findAndCount).toHaveBeenCalledWith({
         where: { userId: 'user-1' },
         order: { updatedAt: 'DESC' },
+        skip: 0,
+        take: 20,
       });
-      expect(convs).toHaveLength(1);
+      expect(result.items).toHaveLength(1);
+      expect(result.meta.total).toBe(1);
+      expect(result.meta.page).toBe(1);
+      expect(result.meta.limit).toBe(20);
     });
 
     it('should throw NotFoundException if conversation not found', async () => {

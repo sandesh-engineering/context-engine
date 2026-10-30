@@ -7,12 +7,29 @@ export class ConversationsApi {
   /**
    * Get list of conversations for tenant.
    */
-  async getConversations(options?: { signal?: AbortSignal }): Promise<Conversation[]> {
+  async getConversations(options?: {
+    page?: number;
+    limit?: number;
+    userId?: string;
+    signal?: AbortSignal;
+  }): Promise<Conversation[]> {
     try {
-      const response = await this.http.get<Conversation[]>('/conversations', {
+      const response = await this.http.get<any>('/conversations', {
+        params: {
+          page: options?.page,
+          limit: options?.limit,
+          userId: options?.userId,
+        },
         signal: options?.signal,
       });
-      return response.data;
+      const data = response.data;
+      if (Array.isArray(data)) {
+        return data;
+      }
+      if (data && Array.isArray(data.items)) {
+        return data.items;
+      }
+      return [];
     } catch {
       return [];
     }

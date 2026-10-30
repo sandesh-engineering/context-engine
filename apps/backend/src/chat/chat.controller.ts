@@ -20,7 +20,7 @@ import {
 import { type Request } from 'express';
 import { Observable } from 'rxjs';
 import { ChatService } from './services/chat.service';
-import { CreateConversationDto, SendMessageDto } from './dto';
+import { CreateConversationDto, SendMessageDto, GetConversationsDto } from './dto';
 
 @ApiTags('Conversations')
 @Controller('conversations')
@@ -44,24 +44,19 @@ export class ChatController {
   }
 
   /**
-   * Retrieves all conversation sessions.
+   * Retrieves paginated conversation sessions.
    */
   @Get()
   @ApiOperation({
-    summary: 'List all conversations',
-    description: 'Retrieves all conversation sessions, optionally filtered by user ID',
-  })
-  @ApiQuery({
-    name: 'userId',
-    required: false,
-    description: 'Optional user identifier filter',
+    summary: 'List paginated conversations',
+    description: 'Retrieves paginated conversation sessions ordered by latest activity, optionally filtered by user ID',
   })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'List of conversation sessions ordered by latest activity',
+    description: 'Paginated list of conversation sessions with metadata',
   })
-  async getAllConversations(@Query('userId') userId?: string) {
-    return this.chatService.getAllConversations(userId);
+  async getAllConversations(@Query() query: GetConversationsDto) {
+    return this.chatService.getAllConversations(query);
   }
 
   /**

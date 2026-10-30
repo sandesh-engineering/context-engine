@@ -46,6 +46,11 @@ export const SemanticAttributes = {
   RAG_RERANK_CANDIDATES_OUT: 'rag.rerank.candidates_out',
   RAG_RERANK_FALLBACK: 'rag.rerank.fallback',
   RAG_RERANK_DURATION_MS: 'rag.rerank.duration_ms',
+  RAG_HYBRID_ENABLED: 'rag.hybrid.enabled',
+  RAG_KEYWORD_RETRIEVED_COUNT: 'rag.keyword.retrieved_count',
+  RAG_VECTOR_RETRIEVED_COUNT: 'rag.vector.retrieved_count',
+  RAG_RRF_FUSED_COUNT: 'rag.rrf.fused_count',
+  RAG_KEYWORD_FALLBACK: 'rag.keyword.fallback',
 
   // Error Classification
   ERROR_TYPE: 'error.type',

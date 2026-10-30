@@ -111,11 +111,21 @@ export const envSchema = z.object({
     .preprocess((val) => val === 'true' || val === true, z.boolean())
     .default(false),
   RERANKER_BASE_URL: z.string().default('http://localhost:11434'),
-  RERANKER_ENDPOINT_PATH: z.string().default('/api/rerank'),
-  RERANKER_MODEL_NAME: z.string().default('qwen3-reranker'),
-  RERANKER_TIMEOUT_MS: z.coerce.number().min(100).default(5000),
+  RERANKER_ENDPOINT_PATH: z.string().default('/api/generate'),
+  // RERANKER_MODEL_NAME: z.string().default('dengcao/Qwen3-Reranker-0.6B:Q8_0'),
+  RERANKER_MODEL_NAME: z.string().default('qwen3:4b'),
+  RERANKER_TIMEOUT_MS: z.coerce.number().min(100).default(15000),
   RERANKER_CANDIDATES_TOP_K: z.coerce.number().min(1).default(30),
   RERANKER_FINAL_TOP_K: z.coerce.number().min(1).default(5),
+
+  /* Hybrid Search (pgvector + PostgreSQL Full-Text Search + RRF) */
+  HYBRID_SEARCH_ENABLED: z
+    .preprocess((val) => val === 'true' || val === true, z.boolean())
+    .default(false),
+  HYBRID_SEARCH_VECTOR_TOP_K: z.coerce.number().min(1).default(20),
+  HYBRID_SEARCH_KEYWORD_TOP_K: z.coerce.number().min(1).default(20),
+  HYBRID_SEARCH_RRF_K: z.coerce.number().min(1).default(60),
+  HYBRID_SEARCH_FINAL_TOP_K: z.coerce.number().min(1).default(8),
 
   /* Resilience & Circuit Breaker */
   CIRCUIT_BREAKER_FAILURE_THRESHOLD: z.coerce.number().default(5),

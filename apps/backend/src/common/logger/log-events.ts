@@ -58,6 +58,10 @@ export const LogEvents = {
   RETRIEVAL_RERANK_STARTED: 'retrieval.rerank.started',
   RETRIEVAL_RERANK_COMPLETED: 'retrieval.rerank.completed',
   RETRIEVAL_RERANK_FALLBACK: 'retrieval.rerank.fallback',
+  RETRIEVAL_HYBRID_STARTED: 'retrieval.hybrid.started',
+  RETRIEVAL_KEYWORD_SEARCHED: 'retrieval.keyword.searched',
+  RETRIEVAL_RRF_FUSED: 'retrieval.rrf.fused',
+  RETRIEVAL_KEYWORD_FALLBACK: 'retrieval.keyword.fallback',
 
   // Chat
   CHAT_SESSION_CREATED: 'chat.session.created',
