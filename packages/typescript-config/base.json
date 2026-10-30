@@ -3,12 +3,22 @@
   "compilerOptions": {
     "esModuleInterop": true,
     "isolatedModules": true,
-    "lib": ["ES2022"],
+    "lib": [
+      "ES2022"
+    ],
     "moduleDetection": "force",
     "noUncheckedIndexedAccess": true,
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "strict": true,
     "target": "ES2022"
-  }
+  },
+  "exclude": [
+    "node_modules",
+    "__tests__",
+    "dist",
+    "coverage",
+    "build",
+    "out"
+  ]
 }

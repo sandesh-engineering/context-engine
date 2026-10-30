@@ -46,9 +46,37 @@ export interface RerankOptions {
 }
 
 /**
+ * Request payload for Hugging Face Text Embeddings Inference /rerank endpoint.
+ */
+export interface TeiRerankRequest {
+  /** The search query string */
+  query: string;
+  /** Ordered list of candidate document texts to score against the query */
+  texts: string[];
+  /** Whether to truncate inputs exceeding model context length */
+  truncate?: boolean;
+  /** Whether to return raw scores (logits) instead of sigmoid probabilities */
+  raw_scores?: boolean;
+  /** Whether to include text in response */
+  return_text?: boolean;
+}
+
+/**
+ * Scored candidate result returned from Hugging Face Text Embeddings Inference /rerank.
+ */
+export interface TeiRerankResponseItem {
+  /** Zero-based candidate index */
+  index: number;
+  /** Cross-encoder relevance score or logit */
+  score: number;
+  /** Optional echo text if return_text was true */
+  text?: string;
+}
+
+/**
  * Contract for neural cross-encoder candidate reranking implementations.
  */
-export interface IQwenRerankerProvider {
+export interface IRerankerProvider {
   /**
    * Reranks candidate document chunks against the user query.
    *
@@ -69,3 +97,9 @@ export interface IQwenRerankerProvider {
     options?: RerankOptions,
   ): Promise<RerankResponse>;
 }
+
+/**
+ * Backward-compatible alias for existing consumers and test fixtures.
+ */
+export type IQwenRerankerProvider = IRerankerProvider;
+

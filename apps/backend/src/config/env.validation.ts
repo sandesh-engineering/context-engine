@@ -106,14 +106,15 @@ export const envSchema = z.object({
   GEMINI_CHAT_MODEL: z.string().default('gemini-2.5-flash'),
   GEMINI_EMBEDDING_MODEL: z.string().default('text-embedding-004'),
 
-  /* Neural Cross-Encoder Reranker (Qwen3-Reranker via Ollama) */
+  /* Neural Cross-Encoder Reranker (Hugging Face TEI in Docker / Ollama fallback) */
   RERANKING_ENABLED: z
     .preprocess((val) => val === 'true' || val === true, z.boolean())
     .default(false),
-  RERANKER_BASE_URL: z.string().default('http://localhost:11434'),
-  RERANKER_ENDPOINT_PATH: z.string().default('/api/generate'),
-  // RERANKER_MODEL_NAME: z.string().default('dengcao/Qwen3-Reranker-0.6B:Q8_0'),
-  RERANKER_MODEL_NAME: z.string().default('qwen3:4b'),
+  RERANKER_PROVIDER_TYPE: z.enum(['tei', 'ollama']).default('tei'),
+  RERANKER_URL: z.string().optional(),
+  RERANKER_BASE_URL: z.string().default('http://localhost:8081'),
+  RERANKER_ENDPOINT_PATH: z.string().default('/rerank'),
+  RERANKER_MODEL_NAME: z.string().default('cross-encoder/ms-marco-MiniLM-L-6-v2'),
   RERANKER_TIMEOUT_MS: z.coerce.number().min(100).default(15000),
   RERANKER_CANDIDATES_TOP_K: z.coerce.number().min(1).default(30),
   RERANKER_FINAL_TOP_K: z.coerce.number().min(1).default(5),

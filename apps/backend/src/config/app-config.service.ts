@@ -246,21 +246,36 @@ export class AppConfigService {
     return this.config.get('CIRCUIT_BREAKER_RESET_TIMEOUT_MS', { infer: true }) ?? 30000;
   }
 
-  /* Neural Cross-Encoder Reranker (Qwen3-Reranker via Ollama) */
+  /* Neural Cross-Encoder Reranker (Hugging Face TEI / Ollama) */
   get rerankingEnabled(): boolean {
     return this.config.get('RERANKING_ENABLED', { infer: true }) ?? false;
   }
 
+  get rerankerProviderType(): 'tei' | 'ollama' {
+    return this.config.get('RERANKER_PROVIDER_TYPE', { infer: true }) ?? 'tei';
+  }
+
+  get rerankerUrl(): string | undefined {
+    return this.config.get('RERANKER_URL', { infer: true });
+  }
+
   get rerankerBaseUrl(): string {
-    return this.config.get('RERANKER_BASE_URL', { infer: true }) ?? 'http://localhost:11434';
+    return (
+      this.config.get('RERANKER_URL', { infer: true }) ??
+      this.config.get('RERANKER_BASE_URL', { infer: true }) ??
+      'http://localhost:8081'
+    );
   }
 
   get rerankerEndpointPath(): string {
-    return this.config.get('RERANKER_ENDPOINT_PATH', { infer: true }) ?? '/api/generate';
+    return this.config.get('RERANKER_ENDPOINT_PATH', { infer: true }) ?? '/rerank';
   }
 
   get rerankerModelName(): string {
-    return this.config.get('RERANKER_MODEL_NAME', { infer: true }) ?? 'qwen3-reranker';
+    return (
+      this.config.get('RERANKER_MODEL_NAME', { infer: true }) ??
+      'cross-encoder/ms-marco-MiniLM-L-6-v2'
+    );
   }
 
   get rerankerTimeoutMs(): number {

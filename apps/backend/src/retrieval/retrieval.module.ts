@@ -11,6 +11,7 @@ import { GeminiEmbeddingProvider } from '../ingestion/embeddings/providers/gemin
 import { AppConfigService } from '../config/app-config.service';
 import { RERANKER_PROVIDER } from './interfaces/reranker-provider.interface';
 import { HttpQwenRerankerProvider } from './providers/http-qwen-reranker.provider';
+import { HttpTeiRerankerProvider } from './providers/http-tei-reranker.provider';
 
 @Module({
   imports: [
@@ -29,9 +30,16 @@ import { HttpQwenRerankerProvider } from './providers/http-qwen-reranker.provide
       useClass: OllamaEmbeddingProvider,
     },
     HttpQwenRerankerProvider,
+    HttpTeiRerankerProvider,
     {
       provide: RERANKER_PROVIDER,
-      useClass: HttpQwenRerankerProvider,
+      useFactory: (appConfig: AppConfigService) => {
+        if (appConfig.rerankerProviderType === 'ollama') {
+          return new HttpQwenRerankerProvider(appConfig);
+        }
+        return new HttpTeiRerankerProvider(appConfig);
+      },
+      inject: [AppConfigService],
     },
   ],
   exports: [

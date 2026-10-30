@@ -18,7 +18,7 @@ describe('HttpQwenRerankerProvider', () => {
   beforeEach(() => {
     mockAppConfig = {
       rerankerBaseUrl: 'http://localhost:11434',
-      rerankerEndpointPath: '/api/rerank',
+      rerankerEndpointPath: '/api/generate',
       rerankerModelName: 'qwen3-reranker',
       rerankerTimeoutMs: 1000,
       circuitBreakerFailureThreshold: 3,
