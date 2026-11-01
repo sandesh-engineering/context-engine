@@ -26,6 +26,9 @@ export class ConversationsApi {
       if (Array.isArray(data)) {
         return data;
       }
+      if (data && Array.isArray(data.data)) {
+        return data.data;
+      }
       if (data && Array.isArray(data.items)) {
         return data.items;
       }
@@ -40,34 +43,60 @@ export class ConversationsApi {
    */
   async createConversation(
     title?: string,
-    options?: { signal?: AbortSignal },
+    options?: { signal?: AbortSignal; userId?: string },
   ): Promise<Conversation> {
     const response = await this.http.post<Conversation>(
       '/conversations',
-      { title: title || 'New Conversation' },
+      {
+        title: title || 'New Conversation',
+        userId: options?.userId,
+      },
       { signal: options?.signal },
     );
     return response.data;
   }
 
   /**
-   * Get paginated messages for a conversation on demand (beforeCursor for upward scroll).
+   * Get single conversation details with its messages.
+   */
+  async getConversation(
+    conversationId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<Conversation> {
+    const response = await this.http.get<any>(`/conversations/${conversationId}`, {
+      signal: options?.signal,
+    });
+    const conv = response.data;
+    if (conv && Array.isArray(conv.messages)) {
+      conv.messages = conv.messages.map((m: any) => ({
+        ...m,
+        role: String(m.role || 'assistant').toLowerCase() as 'user' | 'assistant' | 'system',
+      }));
+    }
+    return conv;
+  }
+
+  /**
+   * Get paginated messages for a conversation.
    */
   async getMessages(
     conversationId: string,
     params?: { beforeCursor?: string; limit?: number },
     options?: { signal?: AbortSignal },
   ): Promise<PaginatedMessagesResponse> {
-    const response = await this.http.get<PaginatedMessagesResponse>(
-      `/conversations/${conversationId}/messages`,
-      {
-        params: {
-          beforeCursor: params?.beforeCursor,
-          limit: params?.limit || 20,
-        },
-        signal: options?.signal,
-      },
-    );
-    return response.data;
+    try {
+      const conv = await this.getConversation(conversationId, options);
+      const rawMessages: ChatMessage[] = conv.messages || [];
+
+      return {
+        messages: rawMessages,
+        hasMore: false,
+      };
+    } catch {
+      return {
+        messages: [],
+        hasMore: false,
+      };
+    }
   }
 }

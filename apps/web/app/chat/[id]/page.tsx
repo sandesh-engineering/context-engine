@@ -76,6 +76,8 @@ export default function ConversationPage({
                     content={msg.content}
                     timestamp={msg.createdAt}
                     isStreaming={isLastAssistantMessage}
+                    citations={msg.citations}
+                    insufficientEvidence={msg.insufficientEvidence}
                   />
                 );
               })}

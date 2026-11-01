@@ -125,6 +125,19 @@ describe('DatabasePoolMetricsAdapter & Metrics Integration', () => {
       expect(metrics).toContain(METRICS_CONSTANTS.DB_POOL_UTILIZATION_PERCENT);
       expect(metrics).toContain(METRICS_CONSTANTS.DB_POOL_ACQUIRE_DURATION_SECONDS);
 
+      // ResLab Canonical Metrics
+      expect(metrics).toContain(METRICS_CONSTANTS.NODEJS_DB_POOL_TOTAL_CONNECTIONS);
+      expect(metrics).toContain(METRICS_CONSTANTS.NODEJS_DB_POOL_ACTIVE_CONNECTIONS);
+      expect(metrics).toContain(METRICS_CONSTANTS.NODEJS_DB_POOL_IDLE_CONNECTIONS);
+      expect(metrics).toContain(METRICS_CONSTANTS.NODEJS_DB_POOL_WAITING_REQUESTS);
+      expect(metrics).toContain(METRICS_CONSTANTS.NODEJS_DB_POOL_MAX_CONNECTIONS);
+
+      expect(metrics).toMatch(/nodejs_db_pool_total_connections\{[^}]*pool="master"[^}]*\}\s+8/);
+      expect(metrics).toMatch(/nodejs_db_pool_active_connections\{[^}]*pool="master"[^}]*\}\s+5/);
+      expect(metrics).toMatch(/nodejs_db_pool_idle_connections\{[^}]*pool="master"[^}]*\}\s+3/);
+      expect(metrics).toMatch(/nodejs_db_pool_waiting_requests\{[^}]*pool="master"[^}]*\}\s+5/);
+      expect(metrics).toMatch(/nodejs_db_pool_max_connections\{[^}]*pool="master"[^}]*\}\s+10/);
+
       expect(metrics).toMatch(/db_pool_total_connections(\{[^}]*\})?\s+8/);
       expect(metrics).toMatch(/db_pool_idle_connections(\{[^}]*\})?\s+3/);
       expect(metrics).toMatch(/db_pool_waiting_requests(\{[^}]*\})?\s+5/);

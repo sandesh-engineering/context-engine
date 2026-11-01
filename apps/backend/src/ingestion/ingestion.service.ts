@@ -19,6 +19,7 @@ import { StoragePathBuilder } from './services/storage-path-builder.service';
 import { IngestionJobStatus, IngestionJobStage } from './common/enums';
 import { AppTracer, SemanticAttributes } from '../common/telemetry';
 import { StructuredLogger, LogEvents } from '../common/logger';
+import { fileTypeStream } from "file-type"
 
 export interface DocumentUploadStreamParams {
   stream: Readable;
@@ -206,8 +207,7 @@ export class IngestionService {
 
     let fts;
     try {
-      const fileTypeModule = await (eval('import("file-type")') as Promise<typeof import('file-type')>);
-      fts = await fileTypeModule.fileTypeStream(Readable.toWeb(stream));
+      fts = await fileTypeStream(Readable.toWeb(stream));
     } catch (err: any) {
       stream.destroy();
       throw err;

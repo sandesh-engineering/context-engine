@@ -26,6 +26,13 @@ export class PdfParserAdapter implements DocumentParser {
    * @throws {Error} Throws if file cannot be read, parsed, or contains no text
    */
   async parse(input: { filePath: string; contentType?: string }): Promise<ParsedDocument> {
+    if (!input?.filePath || typeof input.filePath !== 'string'
+      || input.filePath.includes('\0')) {
+      const invalidPathErr = new Error(`Invalid PDF file path provided`);
+      (invalidPathErr as any).code = 'INVALID_PATH';
+      throw invalidPathErr;
+    }
+
     if (!fs.existsSync(input.filePath)) {
       const missingErr = new Error(`PDF file not found at path ${input.filePath}`);
       (missingErr as any).code = 'NOSUCHKEY';

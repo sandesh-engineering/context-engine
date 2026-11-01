@@ -38,7 +38,7 @@ export class VectorSearchRepository {
     queryVector: number[],
     options?: VectorSearchOptions,
   ): Promise<CandidateChunk[]> {
-    const topK = options?.topK ?? 5;
+    const topK = options?.topK ?? 20;
     const threshold = options?.similarityThreshold ?? 0.5;
 
     if (!queryVector?.length) {

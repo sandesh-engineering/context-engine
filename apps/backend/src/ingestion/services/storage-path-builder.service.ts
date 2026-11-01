@@ -20,7 +20,22 @@ export class StoragePathBuilder {
    * // returns 'tenants/ten_123/documents/doc_456/versions/ver_789/raw.bin'
    * ```
    */
+  private sanitizeComponent(val: string): string {
+    if (!val || typeof val !== 'string') {
+      throw new Error('Storage path component must be a non-empty string');
+    }
+    // Remove null bytes, directory traversal sequences, and characters outside safe identifier set
+    const sanitized = val.replace(/[\x00/\\.]/g, '').replace(/[^a-zA-Z0-9_-]/g, '');
+    if (!sanitized) {
+      throw new Error(`Invalid storage path component: "${val}" contains no valid identifier characters`);
+    }
+    return sanitized;
+  }
+
   buildRawDocumentKey(tenantId: string, documentId: string, versionId: string): string {
-    return `tenants/${tenantId}/documents/${documentId}/versions/${versionId}/raw.bin`;
+    const safeTenant = this.sanitizeComponent(tenantId);
+    const safeDoc = this.sanitizeComponent(documentId);
+    const safeVer = this.sanitizeComponent(versionId);
+    return `tenants/${safeTenant}/documents/${safeDoc}/versions/${safeVer}/raw.bin`;
   }
 }

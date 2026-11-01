@@ -7,6 +7,14 @@ export const METRICS_CONSTANTS = {
   HTTP_DURATION_BUCKETS: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
   GC_DURATION_BUCKETS: [0.001, 0.01, 0.1, 1, 2],
   EVENT_LOOP_MONITORING_PRECISION_MS: 10,
+  // ResLab Canonical DB Pool Metrics
+  NODEJS_DB_POOL_TOTAL_CONNECTIONS: 'nodejs_db_pool_total_connections',
+  NODEJS_DB_POOL_ACTIVE_CONNECTIONS: 'nodejs_db_pool_active_connections',
+  NODEJS_DB_POOL_IDLE_CONNECTIONS: 'nodejs_db_pool_idle_connections',
+  NODEJS_DB_POOL_WAITING_REQUESTS: 'nodejs_db_pool_waiting_requests',
+  NODEJS_DB_POOL_MAX_CONNECTIONS: 'nodejs_db_pool_max_connections',
+
+  // Database Pool Metrics (Legacy & Auxiliary)
   DB_POOL_TOTAL_CONNECTIONS: 'db_pool_total_connections',
   DB_POOL_IDLE_CONNECTIONS: 'db_pool_idle_connections',
   DB_POOL_WAITING_REQUESTS: 'db_pool_waiting_requests',

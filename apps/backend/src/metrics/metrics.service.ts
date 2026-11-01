@@ -14,7 +14,6 @@ import {
 } from '@prometheus-io/client';
 import * as perfHooks from 'node:perf_hooks';
 import { DataSource } from 'typeorm';
-import { InjectDataSource } from '@nestjs/typeorm';
 import { METRICS_CONSTANTS } from './metrics.constants';
 import { DatabasePoolMetricsAdapter } from './database-pool-metrics.adapter';
 
@@ -28,6 +27,14 @@ export class MetricsService implements OnModuleInit, OnApplicationBootstrap {
   public readonly httpActiveRequests: Gauge<string>;
   public readonly eventLoopLagP95?: Gauge<string>;
 
+  /* ResLab Canonical DB Pool Metrics */
+  public readonly nodejsDbPoolTotalConnections: Gauge<string>;
+  public readonly nodejsDbPoolActiveConnections: Gauge<string>;
+  public readonly nodejsDbPoolIdleConnections: Gauge<string>;
+  public readonly nodejsDbPoolWaitingRequests: Gauge<string>;
+  public readonly nodejsDbPoolMaxConnections: Gauge<string>;
+
+  /* Auxiliary & Legacy DB Pool Metrics */
   public readonly dbPoolTotalConnections: Gauge<string>;
   public readonly dbPoolIdleConnections: Gauge<string>;
   public readonly dbPoolWaitingRequests: Gauge<string>;
@@ -39,7 +46,7 @@ export class MetricsService implements OnModuleInit, OnApplicationBootstrap {
 
   constructor(
     @Optional() private readonly poolAdapter?: DatabasePoolMetricsAdapter,
-    @Optional() @InjectDataSource() private readonly dataSource?: DataSource,
+    @Optional() private readonly dataSource?: DataSource,
   ) {
     // 1. Set default labels matching ResLab service name
     try {
@@ -117,7 +124,90 @@ export class MetricsService implements OnModuleInit, OnApplicationBootstrap {
       }
     }
 
-    // 6. Database Connection Pool Metrics
+    const poolLabel = { pool: 'master' };
+
+    // 6. ResLab Canonical Database Connection Pool Metrics (with label { pool: 'master' })
+    this.nodejsDbPoolTotalConnections =
+      (this.registry.getSingleMetric(
+        METRICS_CONSTANTS.NODEJS_DB_POOL_TOTAL_CONNECTIONS,
+      ) as Gauge<string>) ||
+      new Gauge({
+        name: METRICS_CONSTANTS.NODEJS_DB_POOL_TOTAL_CONNECTIONS,
+        help: 'Total number of open database client connections in the application pool',
+        labelNames: ['pool'],
+        registers: [this.registry],
+        collect: () => {
+          if (this.poolAdapter?.isAvailable()) {
+            this.nodejsDbPoolTotalConnections.set(poolLabel, this.poolAdapter.getTotalConnections());
+          }
+        },
+      });
+
+    this.nodejsDbPoolActiveConnections =
+      (this.registry.getSingleMetric(
+        METRICS_CONSTANTS.NODEJS_DB_POOL_ACTIVE_CONNECTIONS,
+      ) as Gauge<string>) ||
+      new Gauge({
+        name: METRICS_CONSTANTS.NODEJS_DB_POOL_ACTIVE_CONNECTIONS,
+        help: 'Number of database connections currently active executing queries',
+        labelNames: ['pool'],
+        registers: [this.registry],
+        collect: () => {
+          if (this.poolAdapter?.isAvailable()) {
+            this.nodejsDbPoolActiveConnections.set(poolLabel, this.poolAdapter.getActiveConnections());
+          }
+        },
+      });
+
+    this.nodejsDbPoolIdleConnections =
+      (this.registry.getSingleMetric(
+        METRICS_CONSTANTS.NODEJS_DB_POOL_IDLE_CONNECTIONS,
+      ) as Gauge<string>) ||
+      new Gauge({
+        name: METRICS_CONSTANTS.NODEJS_DB_POOL_IDLE_CONNECTIONS,
+        help: 'Number of idle database connections waiting in the application pool',
+        labelNames: ['pool'],
+        registers: [this.registry],
+        collect: () => {
+          if (this.poolAdapter?.isAvailable()) {
+            this.nodejsDbPoolIdleConnections.set(poolLabel, this.poolAdapter.getIdleConnections());
+          }
+        },
+      });
+
+    this.nodejsDbPoolWaitingRequests =
+      (this.registry.getSingleMetric(
+        METRICS_CONSTANTS.NODEJS_DB_POOL_WAITING_REQUESTS,
+      ) as Gauge<string>) ||
+      new Gauge({
+        name: METRICS_CONSTANTS.NODEJS_DB_POOL_WAITING_REQUESTS,
+        help: 'Number of asynchronous operations queued waiting for an available database client',
+        labelNames: ['pool'],
+        registers: [this.registry],
+        collect: () => {
+          if (this.poolAdapter?.isAvailable()) {
+            this.nodejsDbPoolWaitingRequests.set(poolLabel, this.poolAdapter.getWaitingRequests());
+          }
+        },
+      });
+
+    this.nodejsDbPoolMaxConnections =
+      (this.registry.getSingleMetric(
+        METRICS_CONSTANTS.NODEJS_DB_POOL_MAX_CONNECTIONS,
+      ) as Gauge<string>) ||
+      new Gauge({
+        name: METRICS_CONSTANTS.NODEJS_DB_POOL_MAX_CONNECTIONS,
+        help: 'Configured maximum database client connection pool limit',
+        labelNames: ['pool'],
+        registers: [this.registry],
+        collect: () => {
+          if (this.poolAdapter?.isAvailable()) {
+            this.nodejsDbPoolMaxConnections.set(poolLabel, this.poolAdapter.getMaxConnections());
+          }
+        },
+      });
+
+    // 7. Legacy Database Pool Metrics (for existing test suites and backward compatibility)
     this.dbPoolTotalConnections =
       (this.registry.getSingleMetric(
         METRICS_CONSTANTS.DB_POOL_TOTAL_CONNECTIONS,

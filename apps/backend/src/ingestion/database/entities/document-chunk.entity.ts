@@ -11,6 +11,9 @@ import { DocumentVersionEntity } from './document-version.entity';
 
 @Entity('document_chunks')
 @Index(['versionId', 'chunkIndex'], { unique: true })
+@Index('idx_document_chunks_content_fts', {
+  synchronize: false,
+})
 export class DocumentChunkEntity {
   /* Database-generated primary identifier for chunk */
   @PrimaryGeneratedColumn('uuid')

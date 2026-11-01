@@ -123,18 +123,8 @@ export function ConversationProvider({
         setNextCursor(null);
         return newConv;
       } catch (err: unknown) {
-        console.warn("Using offline new conversation fallback:", err);
-        const fallbackId = `conv-${Date.now()}`;
-        const fallbackConv: Conversation = {
-          id: fallbackId,
-          title,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-        setConversations((prev) => [fallbackConv, ...prev]);
-        setActiveConversationId(fallbackId);
-        setMessages([]);
-        return fallbackConv;
+        console.error("Failed to create conversation:", err);
+        throw err;
       }
     },
     []
@@ -178,12 +168,16 @@ export function ConversationProvider({
       };
 
       // Set optimistic messages immediately into state
-      setMessages((prev) => (isNewlyCreated ? [userMessage, assistantMessagePlaceholder] : [...prev, userMessage, assistantMessagePlaceholder]));
+      setMessages((prev) =>
+        isNewlyCreated
+          ? [userMessage, assistantMessagePlaceholder]
+          : [...prev, userMessage, assistantMessagePlaceholder]
+      );
       setIsSending(true);
       setError(null);
 
       try {
-        await api.chat.sendMessage({
+        const result = await api.chat.sendMessage({
           conversationId: convId,
           message: trimmed,
           stream: true,
@@ -196,16 +190,52 @@ export function ConversationProvider({
               )
             );
           },
+          onCitation: (citations) => {
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantMessageId
+                  ? { ...msg, citations }
+                  : msg
+              )
+            );
+          },
         });
-      } catch (err: unknown) {
-        console.warn("Chat API stream error, using fallback:", err);
+
+        // Finalize assistant message with backend-assigned id and citations
         setMessages((prev) =>
           prev.map((msg) =>
             msg.id === assistantMessageId
               ? {
                   ...msg,
-                  content:
-                    "Received your query. Backend service is processing your documents.",
+                  id: result.message?.id || msg.id,
+                  content: result.message?.content || msg.content,
+                  citations: result.citations || msg.citations,
+                  insufficientEvidence: result.insufficientEvidence,
+                }
+              : msg
+          )
+        );
+
+        if (result.conversationId && result.conversationId !== convId) {
+          convId = result.conversationId;
+          setActiveConversationId(convId);
+        }
+
+        // Refresh thread list to display updated conversation title
+        fetchConversations();
+      } catch (err: unknown) {
+        console.error("Chat API stream error:", err);
+        const errorMsg =
+          err instanceof Error
+            ? err.message
+            : "An unexpected error occurred while communicating with Knowledge Engine.";
+        setError(errorMsg);
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantMessageId
+              ? {
+                  ...msg,
+                  content: `⚠️ ${errorMsg}`,
                 }
               : msg
           )
@@ -217,7 +247,7 @@ export function ConversationProvider({
 
       return convId;
     },
-    [activeConversationId, createNewConversation, isSending]
+    [activeConversationId, createNewConversation, fetchConversations, isSending]
   );
 
   return (

@@ -1,14 +1,34 @@
 "use client";
 
 import * as React from "react";
-import { CopyIcon, CheckIcon, BotIcon, UserIcon } from "lucide-react";
+import {
+  CopyIcon,
+  CheckIcon,
+  BotIcon,
+  UserIcon,
+  FileTextIcon,
+  ChevronDownIcon,
+  ShieldAlertIcon,
+} from "lucide-react";
 import { cn } from "../lib/utils";
+
+export interface CitationItem {
+  chunkId: string;
+  versionId?: string;
+  documentTitle?: string;
+  chunkIndex?: number;
+  headingPath?: string;
+  similarity?: number;
+  snippet?: string;
+}
 
 export interface MessageBubbleProps {
   role: "user" | "assistant" | "system";
   content: string;
   timestamp?: string | Date;
   isStreaming?: boolean;
+  citations?: CitationItem[];
+  insufficientEvidence?: boolean;
   className?: string;
 }
 
@@ -17,6 +37,8 @@ export function MessageBubble({
   content,
   timestamp,
   isStreaming = false,
+  citations,
+  insufficientEvidence = false,
   className,
 }: MessageBubbleProps) {
   const [copied, setCopied] = React.useState(false);
@@ -73,6 +95,56 @@ export function MessageBubble({
             />
           )}
         </div>
+
+        {/* Insufficient Evidence Guardrail notice */}
+        {insufficientEvidence && (
+          <div className="mt-2.5 flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2.5 py-1.5 rounded-lg border border-amber-500/20">
+            <ShieldAlertIcon className="size-3.5 shrink-0" />
+            <span>Strict Guardrail: Internal documentation contained insufficient evidence.</span>
+          </div>
+        )}
+
+        {/* Sources & Citations list */}
+        {citations && citations.length > 0 && !isStreaming && (
+          <div className="mt-3 pt-2.5 border-t border-border/40">
+            <details className="group/sources text-xs">
+              <summary className="flex items-center gap-1.5 font-medium text-muted-foreground hover:text-foreground cursor-pointer select-none">
+                <FileTextIcon className="size-3.5 text-primary" />
+                <span>Grounding Sources ({citations.length})</span>
+                <ChevronDownIcon className="size-3 transition-transform group-open/sources:rotate-180 ml-auto" />
+              </summary>
+              <div className="mt-2 flex flex-col gap-1.5 pl-0.5">
+                {citations.map((cite, i) => (
+                  <div
+                    key={cite.chunkId || i}
+                    className="flex flex-col rounded-lg border border-border/50 bg-background/60 p-2.5 text-[11px]"
+                  >
+                    <div className="flex items-center justify-between gap-2 font-medium text-foreground">
+                      <span className="truncate">
+                        [{i + 1}] {cite.documentTitle || "Referenced Passage"}
+                      </span>
+                      {cite.similarity !== undefined && (
+                        <span className="shrink-0 font-mono text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                          {Math.round(cite.similarity * 100)}% match
+                        </span>
+                      )}
+                    </div>
+                    {cite.headingPath && (
+                      <span className="text-[10px] text-muted-foreground italic truncate mt-0.5">
+                        § {cite.headingPath}
+                      </span>
+                    )}
+                    {cite.snippet && (
+                      <p className="mt-1.5 text-muted-foreground/90 line-clamp-3 leading-relaxed bg-muted/30 p-2 rounded text-[10.5px] border border-border/30">
+                        {cite.snippet}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </details>
+          </div>
+        )}
 
         <div
           className={cn(

@@ -37,6 +37,12 @@
       "skillPath": "plugins/ui-design/skills/responsive-design/SKILL.md",
       "computedHash": "794cc7f1b2f79d398135d19ef3fe32c406dde926b9bdf86ee3fe7b939a0be906"
     },
+    "security-audit": {
+      "source": "cloudflare/security-audit-skill",
+      "sourceType": "github",
+      "skillPath": "skills/security-audit/SKILL.md",
+      "computedHash": "e6b2e317de75da97e9de18d842982994803f3a67a4a6d8154a82323dc3de8528"
+    },
     "shadcn": {
       "source": "shadcn/ui",
       "sourceType": "github",

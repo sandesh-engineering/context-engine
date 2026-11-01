@@ -29,4 +29,8 @@ export class ApiClient {
   setTenantId(tenantId: string): void {
     this.tenantId = tenantId;
   }
+
+  getTenantId(): string | undefined {
+    return this.tenantId;
+  }
 }

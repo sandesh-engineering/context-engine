@@ -34,6 +34,24 @@ export default function NewChatPage() {
         <p className="max-w-sm text-xs text-muted-foreground mt-1.5 leading-relaxed">
           Ask questions to query and extract insights from your uploaded documents and resources.
         </p>
+
+        {/* Suggestion Prompts */}
+        <div className="mt-6 flex flex-wrap justify-center gap-2 max-w-md">
+          {[
+            "Summarize the key points in the documents",
+            "What are the main requirements and constraints?",
+            "Explain the technical architecture overview",
+          ].map((prompt) => (
+            <button
+              key={prompt}
+              type="button"
+              onClick={() => handleSend(prompt)}
+              className="rounded-full border border-border/80 bg-card/60 px-3.5 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer select-none text-left"
+            >
+              {prompt} →
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Floating Prompt Input bar */}
