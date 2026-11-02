@@ -89,6 +89,19 @@ export class IngestionJobsRepository {
       relations: ['version'],
     });
   }
+
+  /**
+   * Retrieves an ingestion job entity by document version UUID.
+   *
+   * @param {string} versionId - Document version UUID
+   * @returns {Promise<IngestionJobEntity | null>} Ingestion job entity or null if not found
+   */
+  async findJobByVersionId(versionId: string): Promise<IngestionJobEntity | null> {
+    return this.repository.findOne({
+      where: { versionId },
+      relations: ['version'],
+    });
+  }
   /**
    * Updates an ingestion job status to COMPLETED and sets final pipeline stage to INDEXING.
    *
@@ -163,5 +176,23 @@ export class IngestionJobsRepository {
       })
       .where('id = :jobId', { jobId })
       .execute();
+  }
+
+  /**
+   * Retrieves recent ingestion jobs for a tenant with version and document relations.
+   *
+   * @param {string} tenantId - Tenant identifier
+   * @param {number} limit - Maximum number of jobs to return
+   * @returns {Promise<IngestionJobEntity[]>} List of recent jobs
+   */
+  async findRecentJobs(tenantId: string, limit: number = 30): Promise<IngestionJobEntity[]> {
+    return this.repository
+      .createQueryBuilder('job')
+      .innerJoinAndSelect('job.version', 'version')
+      .innerJoinAndSelect('version.document', 'document')
+      .where('document.tenantId = :tenantId', { tenantId })
+      .orderBy('job.createdAt', 'DESC')
+      .take(limit)
+      .getMany();
   }
 }

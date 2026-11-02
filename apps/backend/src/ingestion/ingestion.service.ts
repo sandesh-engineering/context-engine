@@ -16,7 +16,8 @@ import {
 } from './storage/interfaces/object-storage.interface';
 import { IngestionPersistenceService } from './services/ingestion-persistence.service';
 import { StoragePathBuilder } from './services/storage-path-builder.service';
-import { IngestionJobStatus, IngestionJobStage } from './common/enums';
+import { IngestionJobsRepository } from './database/repositories/ingestion-jobs.repository';
+import { DocumentSourceType, IngestionJobStatus, IngestionJobStage } from './common/enums';
 import { AppTracer, SemanticAttributes } from '../common/telemetry';
 import { StructuredLogger, LogEvents } from '../common/logger';
 import { fileTypeStream } from "file-type"
@@ -42,6 +43,17 @@ export interface DocumentUploadResponse {
   createdAt: Date;
 }
 
+export interface IngestionJobItem {
+  id: string;
+  title?: string;
+  filename?: string;
+  url?: string;
+  sourceType?: 'FILE' | 'URL';
+  status: string;
+  createdAt: string;
+  byteSize?: number;
+}
+
 @Injectable()
 export class IngestionService {
   private readonly logger = new StructuredLogger(IngestionService.name);
@@ -51,12 +63,32 @@ export class IngestionService {
     @Inject(OBJECT_STORAGE_SERVICE)
     private readonly storageService: IObjectStorageService,
     private readonly persistenceService: IngestionPersistenceService,
+    private readonly jobsRepository: IngestionJobsRepository,
     private readonly pathBuilder: StoragePathBuilder,
     private readonly configService: ConfigService,
   ) {
     /* Read max document size from config or enforce standard 500 MB limit */
     this.maxFileSizeBytes =
       this.configService.get<number>('MAX_DOCUMENT_SIZE_BYTES') || 500 * 1024 * 1024;
+  }
+
+  /**
+   * Retrieves recent ingestion jobs for the tenant formatted for client consumers.
+   */
+  async getRecentJobs(tenantId: string, limit: number = 30): Promise<IngestionJobItem[]> {
+    const jobs = await this.jobsRepository.findRecentJobs(tenantId, limit);
+    return jobs.map((job) => ({
+      id: job.id,
+      title: job.version?.document?.title || job.version?.originalFilename || 'Document',
+      filename: job.version?.originalFilename,
+      sourceType:
+        job.version?.document?.sourceType === DocumentSourceType.EXTERNAL_URL
+          ? 'URL'
+          : 'FILE',
+      status: job.status,
+      createdAt: job.createdAt ? job.createdAt.toISOString() : new Date().toISOString(),
+      byteSize: Number(job.version?.byteSize || 0),
+    }));
   }
 
   /**

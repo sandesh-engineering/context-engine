@@ -32,6 +32,145 @@ export interface MessageBubbleProps {
   className?: string;
 }
 
+function formatInlineText(text: string): React.ReactNode[] {
+  // Regex matches: **bold**, `code`, or regular text
+  const parts = text.split(/(\*\*.*?\*\*|`.*?`)/g);
+
+  return parts.map((part, index) => {
+    if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
+      const boldText = part.slice(2, -2);
+      return (
+        <strong
+          key={index}
+          className="font-semibold text-foreground tracking-tight underline-offset-2"
+        >
+          {boldText}
+        </strong>
+      );
+    }
+    if (part.startsWith('`') && part.endsWith('`') && part.length >= 2) {
+      const codeText = part.slice(1, -1);
+      return (
+        <code
+          key={index}
+          className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.85em] text-foreground border border-border/50"
+        >
+          {codeText}
+        </code>
+      );
+    }
+    return <React.Fragment key={index}>{part}</React.Fragment>;
+  });
+}
+
+function renderFormattedContent(rawText: string, isUser: boolean): React.ReactNode {
+  if (isUser) {
+    return <span className="whitespace-pre-wrap">{rawText}</span>;
+  }
+
+  const lines = rawText.split('\n');
+  const elements: React.ReactNode[] = [];
+  let currentList: { type: 'ul' | 'ol'; items: React.ReactNode[] } | null = null;
+
+  const flushList = () => {
+    if (!currentList) return;
+    const listKey = `list-${elements.length}`;
+    if (currentList.type === 'ol') {
+      elements.push(
+        <ol key={listKey} className="my-2 ml-4 list-decimal space-y-1 pl-2">
+          {currentList.items.map((item, i) => (
+            <li key={i} className="leading-relaxed">
+              {item}
+            </li>
+          ))}
+        </ol>
+      );
+    } else {
+      elements.push(
+        <ul key={listKey} className="my-2 ml-4 list-disc space-y-1 pl-2">
+          {currentList.items.map((item, i) => (
+            <li key={i} className="leading-relaxed">
+              {item}
+            </li>
+          ))}
+        </ul>
+      );
+    }
+    currentList = null;
+  };
+
+  lines.forEach((line, idx) => {
+    // Blank line
+    if (!line.trim()) {
+      flushList();
+      elements.push(<div key={`blank-${idx}`} className="h-2" />);
+      return;
+    }
+
+    // Unordered list item: - or *
+    if (/^[-*]\s+/.test(line)) {
+      const itemText = line.replace(/^[-*]\s+/, '');
+      if (!currentList || currentList.type !== 'ul') {
+        flushList();
+        currentList = { type: 'ul', items: [] };
+      }
+      currentList.items.push(formatInlineText(itemText));
+      return;
+    }
+
+    // Numbered list item: 1. or 2.
+    const numMatch = line.match(/^(\d+)\.\s+(.*)$/);
+    if (numMatch && numMatch[2] !== undefined) {
+      const itemText = numMatch[2];
+      if (!currentList || currentList.type !== 'ol') {
+        flushList();
+        currentList = { type: 'ol', items: [] };
+      }
+      currentList.items.push(formatInlineText(itemText));
+      return;
+    }
+
+    // Not a list item, flush any open list
+    flushList();
+
+    // Headings: ###, ##, #
+    if (line.startsWith('### ')) {
+      elements.push(
+        <h4 key={`h4-${idx}`} className="font-semibold text-foreground text-sm mt-3 mb-1 tracking-tight">
+          {formatInlineText(line.slice(4))}
+        </h4>
+      );
+      return;
+    }
+    if (line.startsWith('## ')) {
+      elements.push(
+        <h3 key={`h3-${idx}`} className="font-bold text-foreground text-base mt-3.5 mb-1 tracking-tight">
+          {formatInlineText(line.slice(3))}
+        </h3>
+      );
+      return;
+    }
+    if (line.startsWith('# ')) {
+      elements.push(
+        <h2 key={`h2-${idx}`} className="font-bold text-foreground text-lg mt-4 mb-1.5 tracking-tight">
+          {formatInlineText(line.slice(2))}
+        </h2>
+      );
+      return;
+    }
+
+    // Default line
+    elements.push(
+      <p key={`p-${idx}`} className="my-1 leading-relaxed">
+        {formatInlineText(line)}
+      </p>
+    );
+  });
+
+  flushList();
+  return elements;
+}
+
 export function MessageBubble({
   role,
   content,
@@ -80,14 +219,14 @@ export function MessageBubble({
 
       <div
         className={cn(
-          "relative flex max-w-[85%] sm:max-w-[75%] flex-col rounded-2xl px-4 py-3 text-sm shadow-xs transition-colors",
+          "relative flex max-w-[85%] sm:max-w-[75%] flex-col rounded-2xl px-4 py-3.5 text-sm shadow-xs transition-colors",
           isUser
-            ? "bg-primary text-primary-foreground rounded-tr-xs"
-            : "bg-muted/70 text-foreground rounded-tl-xs border border-border/50"
+            ? "bg-primary text-primary-foreground font-medium rounded-tr-xs"
+            : "bg-card text-card-foreground rounded-tl-xs border border-border/80 shadow-2xs"
         )}
       >
-        <div className="whitespace-pre-wrap break-words leading-relaxed">
-          {content}
+        <div className="break-words leading-relaxed text-sm">
+          {renderFormattedContent(content, isUser)}
           {isStreaming && (
             <span
               className="inline-block size-2 ml-1 animate-pulse rounded-full bg-current align-middle"

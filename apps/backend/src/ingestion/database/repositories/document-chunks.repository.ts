@@ -51,6 +51,7 @@ export class DocumentChunksRepository {
     versionId: string,
     chunks: Partial<DocumentChunkEntity>[],
     traceMetadata?: Record<string, unknown>,
+    jobId?: string,
   ): Promise<DocumentChunkEntity[]> {
     if (!chunks || chunks.length === 0) {
       return [];
@@ -89,6 +90,7 @@ export class DocumentChunksRepository {
         metadata: Object.keys(metadata).length > 0 ? (metadata as Record<string, unknown>) : null,
         payload: {
           versionId,
+          jobId,
           chunkCount: savedChunks.length,
           chunkIds: savedChunks.map((c) => c.id),
         },

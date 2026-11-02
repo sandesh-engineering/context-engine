@@ -1,6 +1,8 @@
 import {
   Controller,
   Post,
+  Get,
+  Query,
   Req,
   Res,
   HttpCode,
@@ -15,6 +17,7 @@ import {
   ApiBody,
   ApiResponse,
   ApiHeader,
+  ApiQuery,
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import busboy from 'busboy';
@@ -26,6 +29,28 @@ import type { TenantContext } from './common/tenant.decorator';
 @Controller('documents')
 export class IngestionController {
   constructor(private readonly ingestionService: IngestionService) { }
+
+  /**
+   * Retrieves recent ingestion jobs for the current tenant.
+   */
+  @Get()
+  @ApiOperation({
+    summary: 'List recent document ingestion jobs',
+    description: 'Retrieves recent ingestion jobs with status and document details',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    description: 'Maximum number of jobs to return (default 30)',
+  })
+  async getRecentIngestions(
+    @Tenant() tenant: TenantContext,
+    @Query('limit') limitQuery?: string,
+  ) {
+    const limit = limitQuery ? parseInt(limitQuery, 10) : 30;
+    return this.ingestionService.getRecentJobs(tenant.tenantId, limit);
+  }
 
   /**
    * Accepts a direct single-document multipart/form-data upload stream.

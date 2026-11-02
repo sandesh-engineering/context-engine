@@ -20,7 +20,7 @@ import {
   type IEmbeddingProvider,
 } from '../embeddings/interfaces/embedding-provider.interface';
 import { OutboxMessagePayload } from '../messaging/interfaces/message-publisher.interface';
-import { IngestionJobStage } from '../common/enums';
+import { IngestionJobStage, IngestionJobStatus } from '../common/enums';
 import { AppTracer, SemanticAttributes } from '../../common/telemetry';
 import { StructuredLogger, LogEvents } from '../../common/logger';
 
@@ -343,16 +343,30 @@ export class SqsEmbeddingPollerService implements OnModuleInit, OnModuleDestroy 
   ): Promise<void> {
     const stats = await this.chunksRepository.countChunkStats(versionId);
 
+    // If jobId wasn't provided in the payload, look it up by versionId
+    let effectiveJobId = jobId;
+    if (!effectiveJobId) {
+      const job = await this.jobsRepository.findJobByVersionId(versionId);
+      if (job) {
+        effectiveJobId = job.id;
+      }
+    }
+
     this.logger.logEvent(LogEvents.EMBEDDING_PERSIST_COMPLETED, {
       versionId,
-      jobId,
+      jobId: effectiveJobId,
       totalChunks: stats.total,
       embeddedChunks: stats.embedded,
     });
 
-    if (jobId && stats.total > 0 && stats.embedded === stats.total) {
-      await this.jobsRepository.updateJobStage(jobId, IngestionJobStage.INDEXING);
-      await this.jobsRepository.markJobCompleted(jobId);
+    if (effectiveJobId && stats.total > 0 && stats.embedded === stats.total) {
+      await this.jobsRepository.updateJobStage(effectiveJobId, IngestionJobStage.INDEXING);
+      await this.jobsRepository.markJobCompleted(effectiveJobId);
+      this.logger.logEvent(LogEvents.INGESTION_INTAKE_COMPLETED, {
+        jobId: effectiveJobId,
+        versionId,
+        status: IngestionJobStatus.COMPLETED,
+      });
     }
   }
 

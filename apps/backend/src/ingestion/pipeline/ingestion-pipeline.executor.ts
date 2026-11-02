@@ -203,7 +203,12 @@ export class IngestionPipelineExecutor {
               },
             },
             async () => {
-              await this.chunksRepository.saveChunksWithOutbox(versionId, chunkEntities);
+              await this.chunksRepository.saveChunksWithOutbox(
+                versionId,
+                chunkEntities,
+                undefined,
+                jobId,
+              );
             },
           );
 
