@@ -48,7 +48,7 @@ export abstract class BaseOutboxEntity {
   @Column({ type: 'timestamp', nullable: true })
   failed_at!: Date | null;
 
-  /* Distributed tracing context (traceparent, tenantId) and operational metadata */
+  /* Distributed tracing context (traceparent) and operational metadata */
   @Column({ type: 'jsonb', nullable: true })
   metadata!: Record<string, unknown> | null;
 

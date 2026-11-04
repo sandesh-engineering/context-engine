@@ -37,7 +37,6 @@ describe('Ingestion Pipeline Integration Tests', () => {
       persistUploadedDocument: jest.fn().mockImplementation(async (params) => {
         const doc = new DocumentEntity();
         doc.id = 'doc-uuid-123';
-        doc.tenantId = params.tenantId;
         doc.title = params.title;
         doc.createdAt = new Date();
 
@@ -84,7 +83,6 @@ describe('Ingestion Pipeline Integration Tests', () => {
         stream,
         originalFilename: 'annual-report.pdf',
         title: 'Annual Report 2026',
-        tenantId: 'tenant-42',
       });
 
       expect(result.documentId).toBe('doc-uuid-123');
@@ -110,7 +108,6 @@ describe('Ingestion Pipeline Integration Tests', () => {
           stream,
           originalFilename: 'large.pdf',
           title: 'Large PDF',
-          tenantId: 'tenant-42',
           maxSizeBytes: 20, // 20 bytes ceiling
         }),
       ).rejects.toThrow(PayloadTooLargeException);
@@ -130,14 +127,13 @@ describe('Ingestion Pipeline Integration Tests', () => {
           stream,
           originalFilename: 'malicious.pdf',
           title: 'Malicious Document',
-          tenantId: 'tenant-42',
         }),
       ).rejects.toThrow(BadRequestException);
 
       expect(mockPersistenceService.persistUploadedDocument).not.toHaveBeenCalled();
     });
 
-    it('should reject missing tenantId or document title', async () => {
+    it('should reject a missing document title', async () => {
       const stream = Readable.from([Buffer.from('%PDF-1.7\nContent')]);
 
       await expect(
@@ -145,7 +141,6 @@ describe('Ingestion Pipeline Integration Tests', () => {
           stream,
           originalFilename: 'test.pdf',
           title: '',
-          tenantId: 'tenant-42',
         }),
       ).rejects.toThrow(BadRequestException);
     });
@@ -165,7 +160,6 @@ describe('Ingestion Pipeline Integration Tests', () => {
           stream,
           originalFilename: 'test.pdf',
           title: 'Test Doc',
-          tenantId: 'tenant-42',
         }),
       ).rejects.toThrow(InternalServerErrorException);
 
@@ -189,7 +183,6 @@ describe('Ingestion Pipeline Integration Tests', () => {
           stream: interruptedStream,
           originalFilename: 'broken.pdf',
           title: 'Broken Doc',
-          tenantId: 'tenant-42',
         }),
       ).rejects.toThrow('Client socket closed');
 

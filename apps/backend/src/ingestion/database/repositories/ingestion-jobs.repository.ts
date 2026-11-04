@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
 import { IngestionJobEntity } from '../entities/ingestion-job.entity';
+import { DocumentVersionEntity } from '../entities/document-version.entity';
 import { IngestionJobStage, IngestionJobStatus } from '../../common/enums';
 
 /**
@@ -179,20 +180,33 @@ export class IngestionJobsRepository {
   }
 
   /**
-   * Retrieves recent ingestion jobs for a tenant with version and document relations.
+   * Retrieves recent ingestion jobs with version and document relations.
    *
-   * @param {string} tenantId - Tenant identifier
    * @param {number} limit - Maximum number of jobs to return
    * @returns {Promise<IngestionJobEntity[]>} List of recent jobs
    */
-  async findRecentJobs(tenantId: string, limit: number = 30): Promise<IngestionJobEntity[]> {
+  async findRecentJobs(limit: number = 30): Promise<IngestionJobEntity[]> {
     return this.repository
       .createQueryBuilder('job')
       .innerJoinAndSelect('job.version', 'version')
       .innerJoinAndSelect('version.document', 'document')
-      .where('document.tenantId = :tenantId', { tenantId })
       .orderBy('job.createdAt', 'DESC')
       .take(limit)
       .getMany();
+  }
+
+  /**
+   * Finds a document version with its parent document.
+   *
+   * @param {string} versionId - Document version identifier
+   * @returns {Promise<DocumentVersionEntity | null>} Version with its document, or null if not found
+   */
+  async findVersionById(versionId: string): Promise<DocumentVersionEntity | null> {
+    return this.dataSource
+      .getRepository(DocumentVersionEntity)
+      .createQueryBuilder('version')
+      .innerJoinAndSelect('version.document', 'document')
+      .where('version.id = :versionId', { versionId })
+      .getOne();
   }
 }

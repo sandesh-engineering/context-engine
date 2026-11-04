@@ -1,6 +1,5 @@
 export interface ApiClientConfig {
   baseURL: string;
-  tenantId?: string;
   timeoutMs?: number;
   headers?: Record<string, string>;
 }
@@ -53,6 +52,7 @@ export interface CitationMetadata {
   documentTitle?: string;
   chunkIndex?: number;
   headingPath?: string;
+  pageStart?: number;
   similarity?: number;
   snippet?: string;
 }

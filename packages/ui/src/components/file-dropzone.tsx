@@ -3,6 +3,7 @@
 import * as React from "react";
 import { UploadCloudIcon, FileTextIcon, XIcon } from "lucide-react";
 import { cn } from "../lib/utils";
+import { Button } from "./button";
 
 export interface FileDropzoneProps {
   onFileSelect: (file: File) => void;
@@ -135,61 +136,63 @@ export function FileDropzone({
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           className={cn(
-            "group relative flex min-h-[220px] flex-col items-center justify-center gap-5 rounded-2xl border-2 border-dashed p-10 sm:p-14 md:p-16 text-center transition-all cursor-pointer select-none",
-            "border-border/80 bg-muted/20 hover:bg-muted/35 hover:border-primary/50",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-            isDragging && "border-primary bg-primary/10 scale-[0.99]",
-            disabled && "cursor-not-allowed opacity-50 hover:bg-muted/20 hover:border-border/80"
+            "group relative flex min-h-60 cursor-pointer flex-col items-center justify-center gap-5 rounded-2xl border-2 border-dashed border-input bg-card/60 p-8 text-center transition-colors select-none sm:p-12",
+            "hover:border-ring hover:bg-muted/60",
+            "focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none",
+            isDragging && "border-foreground/40 bg-muted",
+            disabled && "cursor-not-allowed opacity-50 hover:border-input hover:bg-muted/30"
           )}
         >
-          <div className="flex size-16 items-center justify-center rounded-2xl bg-primary/10 text-primary transition-transform group-hover:scale-105 shadow-2xs">
-            <UploadCloudIcon className="size-8" />
+          <div className="flex size-14 shrink-0 items-center justify-center rounded-xl border bg-background text-muted-foreground shadow-xs transition-colors group-hover:text-foreground">
+            <UploadCloudIcon className="size-6" />
           </div>
 
-          <div className="flex flex-col gap-2 max-w-sm px-2">
-            <p className="text-sm md:text-base font-semibold tracking-tight text-foreground">
-              Drop your PDF here, or{" "}
-              <span className="text-primary underline underline-offset-4">browse files</span>
+          <div className="flex max-w-md flex-col gap-1.5">
+            <p className="text-base font-medium text-foreground">
+              Drop a PDF here, or{" "}
+              <span className="underline decoration-muted-foreground/50 underline-offset-4 group-hover:decoration-foreground">
+                browse
+              </span>
             </p>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Streams directly to storage. Supports multi-page books, technical papers, and large documents.
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              Multi-page books, papers and large documents are streamed straight to storage.
             </p>
           </div>
         </div>
       ) : (
-        <div className="flex items-center justify-between rounded-2xl border border-border bg-card p-5 sm:p-6 shadow-xs">
-          <div className="flex items-center gap-4 overflow-hidden">
-            <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary shadow-2xs">
-              <FileTextIcon className="size-6" />
+        <div className="flex items-center justify-between gap-3 rounded-2xl border bg-card p-4 pr-3 shadow-xs">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+              <FileTextIcon className="size-5" />
             </div>
-            <div className="flex flex-col overflow-hidden text-left gap-0.5">
-              <span className="truncate text-sm font-semibold text-foreground">
+            <div className="flex min-w-0 flex-col gap-0.5 text-left">
+              <span className="truncate text-sm font-medium text-foreground">
                 {selectedFile.name}
               </span>
-              <span className="text-xs text-muted-foreground font-mono">
-                {formatFileSize(selectedFile.size)} · PDF Document
+              <span className="text-xs text-muted-foreground tabular-nums">
+                PDF, {formatFileSize(selectedFile.size)}
               </span>
             </div>
           </div>
           {onFileRemove && !disabled && (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="icon-sm"
               onClick={(e) => {
                 e.stopPropagation();
                 if (inputRef.current) inputRef.current.value = "";
                 onFileRemove();
               }}
               aria-label="Remove selected file"
-              className="rounded-lg p-2.5 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors"
             >
-              <XIcon className="size-5" />
-            </button>
+              <XIcon />
+            </Button>
           )}
         </div>
       )}
 
       {errorMessage && (
-        <p className="text-xs font-medium text-destructive animate-in fade-in-50 px-1" role="alert">
+        <p className="px-0.5 text-[13px] text-destructive animate-in fade-in-50" role="alert">
           {errorMessage}
         </p>
       )}

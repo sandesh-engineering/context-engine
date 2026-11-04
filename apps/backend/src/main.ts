@@ -2,9 +2,17 @@ import { sdk } from './instrumentation';
 sdk.start();
 
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe, VersioningType } from '@nestjs/common';
+import { Logger, ValidationPipe, VersioningType } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { AppConfigService } from './config/app-config.service';
+
+/* Safety net: log a stray rejection instead of letting one request take the process down */
+process.on('unhandledRejection', (reason: unknown) => {
+  new Logger('Process').error(
+    'Unhandled promise rejection',
+    reason instanceof Error ? reason.stack : String(reason),
+  );
+});
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -14,7 +22,7 @@ async function bootstrap() {
   app.enableCors({
     origin: config.corsOrigin,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-id'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
   });
 

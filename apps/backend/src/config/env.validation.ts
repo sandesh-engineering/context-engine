@@ -6,7 +6,6 @@ export const envSchema = z.object({
     .enum(['development', 'production', 'test', 'provision'])
     .default('development'),
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
-  DEFAULT_DEMO_TENANT_ID: z.string().default('demo-tenant-001'),
 
   /* PostgreSQL Vector Database Configuration */
   DB_HOST: z.string().default('localhost'),
@@ -22,10 +21,12 @@ export const envSchema = z.object({
 
   /* AWS S3 Object Storage & SQS Messaging */
   AWS_REGION: z.string().default('us-east-1'),
-  AWS_ACCESS_KEY_ID: z.string().optional().default('admin'),
-  AWS_SECRET_ACCESS_KEY: z.string().optional().default('password123'),
+  /* No schema defaults: unset in production means the SDK uses the IAM credential chain.
+     LocalStack values are filled in for non-production by validateEnv(). */
+  AWS_ACCESS_KEY_ID: z.string().optional(),
+  AWS_SECRET_ACCESS_KEY: z.string().optional(),
   AWS_S3_BUCKET: z.string().default('knowledge-engine-docs'),
-  AWS_ENDPOINT_URL: z.string().optional().default('http://localhost:4566'),
+  AWS_ENDPOINT_URL: z.string().optional(),
 
   /* OpenTelemetry Tracing / Jaeger */
   OTEL_ATTR_SERVICE_VERSION: z
@@ -47,9 +48,10 @@ export const envSchema = z.object({
   OTEL_SAMPLING_RATIO: z.coerce.number().min(0).max(1).optional().default(1),
 
   /* SQS Poller & Queue Endpoints */
+  /* Off by default so the API process never parses untrusted PDFs; main-worker.ts forces it on */
   WORKER_ENABLED: z
     .preprocess((val) => val === 'true' || val === true, z.boolean())
-    .default(true),
+    .default(false),
   EMBEDDING_WORKER_ENABLED: z
     .preprocess((val) => val === 'true' || val === true, z.boolean())
     .default(true),
@@ -135,12 +137,69 @@ export const envSchema = z.object({
 
 export type Env = z.infer<typeof envSchema>;
 
+/* LocalStack connection values, applied only outside production */
+const LOCAL_AWS_DEFAULTS = {
+  AWS_ACCESS_KEY_ID: 'admin',
+  AWS_SECRET_ACCESS_KEY: 'password123',
+  AWS_ENDPOINT_URL: 'http://localhost:4566',
+} as const;
+
+const DEV_CREDENTIAL_VALUES = new Set<string>([
+  'postgres',
+  LOCAL_AWS_DEFAULTS.AWS_ACCESS_KEY_ID,
+  LOCAL_AWS_DEFAULTS.AWS_SECRET_ACCESS_KEY,
+]);
+
+const LOCAL_HOST_PATTERN = /\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i;
+
+/**
+ * Lists settings that would run production on development credentials or local endpoints.
+ */
+function findUnsafeProductionSettings(env: Env): string[] {
+  const issues: string[] = [];
+
+  if (DEV_CREDENTIAL_VALUES.has(env.DB_PASSWORD)) {
+    issues.push('DB_PASSWORD must be set to a non-default value');
+  }
+  if (env.AWS_ACCESS_KEY_ID && DEV_CREDENTIAL_VALUES.has(env.AWS_ACCESS_KEY_ID)) {
+    issues.push('AWS_ACCESS_KEY_ID must not use the LocalStack value (unset it to use the IAM role)');
+  }
+  if (env.AWS_SECRET_ACCESS_KEY && DEV_CREDENTIAL_VALUES.has(env.AWS_SECRET_ACCESS_KEY)) {
+    issues.push('AWS_SECRET_ACCESS_KEY must not use the LocalStack value (unset it to use the IAM role)');
+  }
+
+  const endpointSettings = {
+    AWS_ENDPOINT_URL: env.AWS_ENDPOINT_URL,
+    SQS_INGESTION_QUEUE_URL: env.SQS_INGESTION_QUEUE_URL,
+    SQS_INGESTION_DLQ_URL: env.SQS_INGESTION_DLQ_URL,
+    SQS_EMBEDDING_QUEUE_URL: env.SQS_EMBEDDING_QUEUE_URL,
+    SQS_EMBEDDING_DLQ_URL: env.SQS_EMBEDDING_DLQ_URL,
+  };
+  for (const [name, value] of Object.entries(endpointSettings)) {
+    if (value && LOCAL_HOST_PATTERN.test(value)) {
+      issues.push(`${name} must not point at localhost in production`);
+    }
+  }
+
+  return issues;
+}
+
 export function validateEnv(config: Record<string, unknown>): Env {
-  const result = envSchema.safeParse(config);
+  const isProduction = config.NODE_ENV === 'production';
+  const input = isProduction ? config : { ...LOCAL_AWS_DEFAULTS, ...config };
+  const result = envSchema.safeParse(input);
 
   if (!result.success) {
     console.error('Invalid environment variables:', result.error.format());
     throw new Error('Environment validation failed');
+  }
+
+  if (isProduction) {
+    const issues = findUnsafeProductionSettings(result.data);
+    if (issues.length > 0) {
+      console.error('Unsafe production environment:', issues);
+      throw new Error('Environment validation failed: development defaults are not allowed in production');
+    }
   }
 
   return result.data;

@@ -4,6 +4,7 @@ import {
   InternalServerErrorException,
   BadRequestException,
   PayloadTooLargeException,
+  NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Readable, Transform } from 'stream';
@@ -21,12 +22,17 @@ import { DocumentSourceType, IngestionJobStatus, IngestionJobStage } from './com
 import { AppTracer, SemanticAttributes } from '../common/telemetry';
 import { StructuredLogger, LogEvents } from '../common/logger';
 import { fileTypeStream } from "file-type"
+import { randomUUID } from 'crypto';
+
+/* Mirrors the DOCUMENT_MAX_SIZE_BYTES default in env.validation.ts (100 MB) */
+const DEFAULT_MAX_DOCUMENT_SIZE_BYTES = 104857600;
+const DEFAULT_RECENT_JOBS_LIMIT = 30;
+const MAX_RECENT_JOBS_LIMIT = 100;
 
 export interface DocumentUploadStreamParams {
   stream: Readable;
   originalFilename: string;
   title: string;
-  tenantId: string;
   maxSizeBytes?: number;
   traceId?: string;
 }
@@ -54,6 +60,13 @@ export interface IngestionJobItem {
   byteSize?: number;
 }
 
+export interface DocumentFile {
+  stream: Readable;
+  mimeType: string;
+  filename: string;
+  byteSize: number;
+}
+
 @Injectable()
 export class IngestionService {
   private readonly logger = new StructuredLogger(IngestionService.name);
@@ -67,16 +80,28 @@ export class IngestionService {
     private readonly pathBuilder: StoragePathBuilder,
     private readonly configService: ConfigService,
   ) {
-    /* Read max document size from config or enforce standard 500 MB limit */
+    /* Same key and default as the env schema and the worker's TempStorageManager */
     this.maxFileSizeBytes =
-      this.configService.get<number>('MAX_DOCUMENT_SIZE_BYTES') || 500 * 1024 * 1024;
+      this.configService.get<number>('DOCUMENT_MAX_SIZE_BYTES') || DEFAULT_MAX_DOCUMENT_SIZE_BYTES;
   }
 
   /**
-   * Retrieves recent ingestion jobs for the tenant formatted for client consumers.
+   * Maximum accepted upload size in bytes.
    */
-  async getRecentJobs(tenantId: string, limit: number = 30): Promise<IngestionJobItem[]> {
-    const jobs = await this.jobsRepository.findRecentJobs(tenantId, limit);
+  get maxUploadBytes(): number {
+    return this.maxFileSizeBytes;
+  }
+
+  /**
+   * Retrieves recent ingestion jobs formatted for client consumers.
+   *
+   * @param {number} [limit=30] - Requested page size, clamped to 1..MAX_RECENT_JOBS_LIMIT
+   */
+  async getRecentJobs(limit: number = DEFAULT_RECENT_JOBS_LIMIT): Promise<IngestionJobItem[]> {
+    const safeLimit = Number.isInteger(limit)
+      ? Math.min(Math.max(limit, 1), MAX_RECENT_JOBS_LIMIT)
+      : DEFAULT_RECENT_JOBS_LIMIT;
+    const jobs = await this.jobsRepository.findRecentJobs(safeLimit);
     return jobs.map((job) => ({
       id: job.id,
       title: job.version?.document?.title || job.version?.originalFilename || 'Document',
@@ -92,6 +117,35 @@ export class IngestionService {
   }
 
   /**
+   * Opens the stored raw file of a document version.
+   *
+   * @remarks
+   * - Returns a stream; the binary is never buffered in memory.
+   *
+   * @param {string} versionId - Document version identifier (from a chat citation)
+   * @returns {Promise<DocumentFile>} Object stream plus the metadata needed for response headers
+   * @throws {NotFoundException} Throws if the version does not exist
+   * @throws {InternalServerErrorException} Throws if the storage backend cannot stream objects
+   */
+  async getDocumentFile(versionId: string): Promise<DocumentFile> {
+    const version = await this.jobsRepository.findVersionById(versionId);
+    if (!version) {
+      throw new NotFoundException('Document not found');
+    }
+    if (!this.storageService.getObjectStream) {
+      throw new InternalServerErrorException('Configured storage does not support reading objects');
+    }
+
+    const stream = await this.storageService.getObjectStream(version.storageKey);
+    return {
+      stream,
+      mimeType: version.mimeType,
+      filename: version.originalFilename,
+      byteSize: Number(version.byteSize),
+    };
+  }
+
+  /**
    * Orchestrates the complete direct document streaming ingestion intake pipeline.
    *
    * @remarks
@@ -100,9 +154,9 @@ export class IngestionService {
    * - Atomically persists metadata and Transactional Outbox event in PostgreSQL.
    * - Performs compensating storage deletion if the database transaction fails.
    *
-   * @param {DocumentUploadStreamParams} params - Upload stream, tenant context, and document metadata
+   * @param {DocumentUploadStreamParams} params - Upload stream and document metadata
    * @returns {Promise<DocumentUploadResponse>} Ingestion job metadata and accepted status
-   * @throws {BadRequestException} Throws if tenantId, title, or filename is missing, or magic bytes are invalid
+   * @throws {BadRequestException} Throws if title or filename is missing, or magic bytes are invalid
    * @throws {PayloadTooLargeException} Throws if stream exceeds configured byte limit
    * @throws {InternalServerErrorException} Throws if downstream database persistence fails
    *
@@ -112,7 +166,6 @@ export class IngestionService {
    *   stream: fileStream,
    *   originalFilename: 'whitepaper.pdf',
    *   title: 'Whitepaper 2026',
-   *   tenantId: 'ten_abc123',
    * });
    * ```
    */
@@ -123,7 +176,6 @@ export class IngestionService {
       'document.create',
       {
         attributes: {
-          [SemanticAttributes.KE_TENANT_ID]: params.tenantId,
           'document.title': params.title,
           'document.filename': params.originalFilename,
         },
@@ -131,19 +183,15 @@ export class IngestionService {
       async (span) => {
         this.validateUploadParameters(params);
 
-        const tempDocId = `doc_${Date.now()}`;
-        const tempVerId = `ver_${Date.now()}`;
-        const storageKey = this.pathBuilder.buildRawDocumentKey(
-          params.tenantId,
-          tempDocId,
-          tempVerId,
-        );
+        /* Random ids: concurrent uploads must never share (and overwrite) a storage key */
+        const tempDocId = `doc_${randomUUID()}`;
+        const tempVerId = `ver_${randomUUID()}`;
+        const storageKey = this.pathBuilder.buildRawDocumentKey(tempDocId, tempVerId);
 
         this.logger.logEvent(LogEvents.INGESTION_INTAKE_STARTED, {
           title: params.title,
           originalFilename: params.originalFilename,
           storageKey,
-          tenantId: params.tenantId,
           traceId: params.traceId,
         });
 
@@ -160,7 +208,6 @@ export class IngestionService {
         /* Step 3: Atomically commit Document, Version, IngestionJob, Outbox in DB */
         try {
           const persisted = await this.persistenceService.persistUploadedDocument({
-            tenantId: params.tenantId,
             title: params.title,
             storageKey,
             sha256Digest: uploadResult.sha256Digest,
@@ -182,7 +229,6 @@ export class IngestionService {
             versionId: persisted.version.id,
             jobId: persisted.job.id,
             storageKey,
-            tenantId: params.tenantId,
             traceId: params.traceId,
           });
 
@@ -201,7 +247,6 @@ export class IngestionService {
           /* Step 4: Consistency Handling - Execute compensating storage deletion on DB failure */
           this.logger.logError(LogEvents.INGESTION_INTAKE_FAILED, dbError, {
             storageKey,
-            tenantId: params.tenantId,
             traceId: params.traceId,
           });
           await this.compensateStorageRollback(storageKey, params.traceId, dbError);
@@ -217,9 +262,6 @@ export class IngestionService {
    * Validates presence of mandatory business parameters.
    */
   private validateUploadParameters(params: DocumentUploadStreamParams): void {
-    if (!params.tenantId || params.tenantId.trim().length === 0) {
-      throw new BadRequestException('Tenant ID is required for document upload');
-    }
     if (!params.title || params.title.trim().length === 0) {
       throw new BadRequestException('Document title is required for upload');
     }
@@ -285,7 +327,6 @@ export class IngestionService {
       if (typeof this.storageService.streamToStorage === 'function') {
         return await this.storageService.streamToStorage(storageKey, stream, {
           metadata: {
-            tenantId: params.tenantId,
             originalFilename: encodeURIComponent(params.originalFilename),
           },
         });

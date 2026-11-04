@@ -8,6 +8,8 @@ export interface CandidateChunk {
   chunkIndex: number;
   content: string;
   headingPath?: string;
+  /* Title of the parent document (falls back to the uploaded filename) */
+  documentTitle?: string;
   pageStart?: number;
   pageEnd?: number;
   metadataJson?: Record<string, unknown>;
@@ -53,11 +55,14 @@ export class VectorSearchRepository {
     const rows = await this.dataSource
       .getRepository(DocumentChunkEntity)
       .createQueryBuilder('documentChunk')
+      .leftJoin('documentChunk.version', 'version')
+      .leftJoin('version.document', 'document')
       .select('documentChunk.id', 'id')
       .addSelect('documentChunk.versionId', 'versionId')
       .addSelect('documentChunk.chunkIndex', 'chunkIndex')
       .addSelect('documentChunk.content', 'content')
       .addSelect('documentChunk.headingPath', 'headingPath')
+      .addSelect('COALESCE(document.title, version.originalFilename)', 'documentTitle')
       .addSelect('documentChunk.pageStart', 'pageStart')
       .addSelect('documentChunk.pageEnd', 'pageEnd')
       .addSelect('documentChunk.metadataJson', 'metadataJson')
@@ -78,6 +83,7 @@ export class VectorSearchRepository {
       chunkIndex: Number(row.chunkIndex),
       content: row.content,
       headingPath: row.headingPath ?? undefined,
+      documentTitle: row.documentTitle ?? undefined,
       pageStart: row.pageStart ? Number(row.pageStart) : undefined,
       pageEnd: row.pageEnd ? Number(row.pageEnd) : undefined,
       metadataJson: row.metadataJson ?? undefined,
@@ -110,11 +116,14 @@ export class VectorSearchRepository {
     const rows = await this.dataSource
       .getRepository(DocumentChunkEntity)
       .createQueryBuilder('documentChunk')
+      .leftJoin('documentChunk.version', 'version')
+      .leftJoin('version.document', 'document')
       .select('documentChunk.id', 'id')
       .addSelect('documentChunk.versionId', 'versionId')
       .addSelect('documentChunk.chunkIndex', 'chunkIndex')
       .addSelect('documentChunk.content', 'content')
       .addSelect('documentChunk.headingPath', 'headingPath')
+      .addSelect('COALESCE(document.title, version.originalFilename)', 'documentTitle')
       .addSelect('documentChunk.pageStart', 'pageStart')
       .addSelect('documentChunk.pageEnd', 'pageEnd')
       .addSelect('documentChunk.metadataJson', 'metadataJson')
@@ -133,6 +142,7 @@ export class VectorSearchRepository {
       chunkIndex: Number(row.chunkIndex),
       content: row.content,
       headingPath: row.headingPath ?? undefined,
+      documentTitle: row.documentTitle ?? undefined,
       pageStart: row.pageStart ? Number(row.pageStart) : undefined,
       pageEnd: row.pageEnd ? Number(row.pageEnd) : undefined,
       metadataJson: row.metadataJson ?? undefined,

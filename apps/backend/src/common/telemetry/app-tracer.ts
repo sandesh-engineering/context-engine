@@ -28,7 +28,6 @@ export const SemanticAttributes = {
   KE_DOCUMENT_ID: 'knowledge_engine.document_id',
   KE_VERSION_ID: 'knowledge_engine.version_id',
   KE_CHUNK_ID: 'knowledge_engine.chunk_id',
-  KE_TENANT_ID: 'knowledge_engine.tenant_id',
   KE_STAGE: 'knowledge_engine.stage',
   KE_ATTEMPT: 'knowledge_engine.attempt',
 

@@ -14,7 +14,7 @@ describe('Storage Adapters Tests', () => {
     it('should stream to storage and compute sha256 correctly', async () => {
       const content = 'Test Document Content for Streaming';
       const stream = Readable.from([Buffer.from(content)]);
-      const key = 'tenants/t1/documents/d1/v1/raw.bin';
+      const key = 'documents/d1/versions/v1/raw.bin';
 
       const result = await adapter.streamToStorage(key, stream);
 
@@ -30,7 +30,7 @@ describe('Storage Adapters Tests', () => {
           this.emit('error', new Error('Network stream interrupted'));
         },
       });
-      const key = 'tenants/t1/documents/d1/v1/failed.bin';
+      const key = 'documents/d1/versions/v1/failed.bin';
 
       await expect(adapter.streamToStorage(key, failingStream)).rejects.toThrow(
         'Network stream interrupted',
@@ -40,7 +40,7 @@ describe('Storage Adapters Tests', () => {
     });
 
     it('should perform compensating deletion', async () => {
-      const key = 'tenants/t1/documents/d1/v1/temp.bin';
+      const key = 'documents/d1/versions/v1/temp.bin';
       await adapter.putObject?.(key, Buffer.from('temp'), 'application/pdf');
       await adapter.deleteObject(key);
 

@@ -17,7 +17,6 @@ import { TraceContextPropagator } from '../../common/telemetry';
 import { StructuredLogger, LogEvents } from '../../common/logger';
 
 export interface PersistDocumentParams {
-  tenantId: string;
   title: string;
   storageKey: string;
   sha256Digest: string;
@@ -54,9 +53,8 @@ export class IngestionPersistenceService {
    * @example
    * ```ts
    * const result = await persistenceService.persistUploadedDocument({
-   *   tenantId: 'ten_123',
    *   title: 'Report.pdf',
-   *   storageKey: 'tenants/ten_123/...',
+   *   storageKey: 'documents/doc_123/versions/ver_456/raw.bin',
    *   sha256Digest: 'e3b0c442...',
    *   byteSize: 1024,
    *   originalFilename: 'Report.pdf',
@@ -70,7 +68,6 @@ export class IngestionPersistenceService {
     return this.dataSource.transaction(async (manager) => {
       /* 1. Insert parent logical document using database-generated UUID */
       const document = manager.create(DocumentEntity, {
-        tenantId: params.tenantId,
         title: params.title,
         sourceType: DocumentSourceType.DIRECT_UPLOAD,
       });
@@ -118,7 +115,6 @@ export class IngestionPersistenceService {
           documentId: savedDocument.id,
           versionId: savedVersion.id,
           jobId: savedJob.id,
-          tenantId: params.tenantId,
           storageKey: params.storageKey,
           sha256Digest: params.sha256Digest,
           byteSize: params.byteSize,
@@ -133,7 +129,6 @@ export class IngestionPersistenceService {
         versionId: savedVersion.id,
         jobId: savedJob.id,
         eventId: savedOutbox.event_id,
-        tenantId: params.tenantId,
       });
 
       return {

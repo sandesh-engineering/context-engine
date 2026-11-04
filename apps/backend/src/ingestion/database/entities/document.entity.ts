@@ -15,10 +15,6 @@ export class DocumentEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  /* Multi-tenant partition boundary identifier ensuring complete tenant data isolation */
-  @Column({ name: 'tenant_id', type: 'varchar' })
-  tenantId!: string;
-
   /* User-facing human-readable title of the document */
   @Column({ type: 'varchar' })
   title!: string;

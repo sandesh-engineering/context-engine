@@ -26,10 +26,6 @@ export class AppConfigService {
     return this.config.get('CORS_ORIGIN', { infer: true });
   }
 
-  get defaultDemoTenantId(): string {
-    return this.config.get('DEFAULT_DEMO_TENANT_ID', { infer: true }) ?? 'demo-tenant-001';
-  }
-
   get isProduction(): boolean {
     return this.nodeEnv === 'production';
   }

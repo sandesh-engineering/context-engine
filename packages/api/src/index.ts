@@ -20,15 +20,7 @@ export class KnowledgeEngineApi {
     this.client = new ApiClient(config);
     this.documents = new DocumentsApi(this.client.http);
     this.conversations = new ConversationsApi(this.client.http);
-    this.chat = new ChatApi(
-      this.client.http,
-      () => config.baseURL,
-      () => this.client.getTenantId(),
-    );
-  }
-
-  setTenantId(tenantId: string): void {
-    this.client.setTenantId(tenantId);
+    this.chat = new ChatApi(this.client.http, () => config.baseURL);
   }
 }
 

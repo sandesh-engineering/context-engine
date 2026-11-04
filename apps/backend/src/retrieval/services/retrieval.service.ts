@@ -19,11 +19,16 @@ import { RERANKER_PROVIDER } from '../interfaces/reranker-provider.interface';
 
 import { reciprocalRankFusion } from '../utils/reciprocal-rank-fusion';
 
+/* Ceiling for caller-requested topK; bounds the SQL LIMIT, rerank pool, and prompt size */
+export const MAX_RETRIEVAL_TOP_K = 20;
+
 export interface RetrievalQueryParams {
   query: string;
   topK?: number;
   similarityThreshold?: number;
   traceId?: string;
+  /** Cancels outbound reranker calls when the requesting client disconnects. */
+  signal?: AbortSignal;
 }
 
 export interface RetrievalResult {
@@ -68,8 +73,9 @@ export class RetrievalService {
    * 6. Returns ranked candidate chunks with resilient fallback to vector search order
    */
   async retrieveCandidates(
-    params: RetrievalQueryParams,
+    rawParams: RetrievalQueryParams,
   ): Promise<RetrievalResult> {
+    const params = this.normalizeParams(rawParams);
     const isHybridEnabled = Boolean(this.appConfig.hybridSearchEnabled);
     const isRerankingEnabled =
       Boolean(this.appConfig.rerankingEnabled) && Boolean(this.rerankerProvider);
@@ -347,6 +353,7 @@ export class RetrievalService {
                 const rerankResponse = await this.rerankerProvider!.rerank(
                   sanitizedQuery,
                   rerankInput,
+                  { signal: params.signal },
                 );
 
                 const scoreMap = new Map<string, number>();
@@ -442,5 +449,24 @@ export class RetrievalService {
         };
       },
     );
+  }
+
+  /**
+   * Clamps caller-supplied tuning knobs so a single request cannot scan the whole
+   * corpus or build an unbounded prompt. Invalid values fall back to defaults.
+   */
+  private normalizeParams(params: RetrievalQueryParams): RetrievalQueryParams {
+    const { topK, similarityThreshold } = params;
+    return {
+      ...params,
+      topK:
+        topK !== undefined && Number.isInteger(topK) && topK >= 1
+          ? Math.min(topK, MAX_RETRIEVAL_TOP_K)
+          : undefined,
+      similarityThreshold:
+        similarityThreshold !== undefined && Number.isFinite(similarityThreshold)
+          ? Math.min(Math.max(similarityThreshold, 0), 1)
+          : undefined,
+    };
   }
 }

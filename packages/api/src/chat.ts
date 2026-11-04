@@ -5,7 +5,6 @@ export class ChatApi {
   constructor(
     private readonly http: AxiosInstance,
     private readonly getBaseURL?: () => string,
-    private readonly getTenantId?: () => string | undefined,
   ) { }
 
   /**
@@ -21,7 +20,6 @@ export class ChatApi {
       'http://localhost:5001/api/v1';
 
     const baseURL = rawBaseURL.replace(/\/$/, '');
-    const tenantId = this.getTenantId ? this.getTenantId() : undefined;
 
     const endpoint = request.conversationId
       ? `${baseURL}/conversations/${request.conversationId}/messages`
@@ -39,7 +37,6 @@ export class ChatApi {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(tenantId ? { 'x-tenant-id': tenantId } : {}),
       },
       body: JSON.stringify(payload),
       signal: options?.signal,

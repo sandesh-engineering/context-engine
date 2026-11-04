@@ -5,7 +5,7 @@ export class ConversationsApi {
   constructor(private readonly http: AxiosInstance) {}
 
   /**
-   * Get list of conversations for tenant.
+   * Get list of conversations.
    */
   async getConversations(options?: {
     page?: number;

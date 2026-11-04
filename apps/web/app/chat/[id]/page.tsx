@@ -5,7 +5,29 @@ import { useConversation } from "../../../context/conversation-context";
 import { ChatInput } from "../../../components/chat/chat-input";
 import { MessageBubble } from "@repo/ui/components/message-bubble";
 import { MessageScroller } from "@repo/ui/components/message-scroller";
-import { SparklesIcon, Loader2Icon } from "lucide-react";
+import { Skeleton } from "@repo/ui/components/skeleton";
+import type { CitationItem } from "@repo/ui/components/message-bubble";
+import { openCitedDocument } from "../../../lib/open-document";
+
+const openSource = (citation: CitationItem) =>
+  citation.versionId ? openCitedDocument(citation.versionId, citation.pageStart) : undefined;
+
+function ConversationSkeleton() {
+  return (
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 pt-10 sm:px-6" aria-label="Loading conversation">
+      <Skeleton className="h-7 w-3/5" />
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Skeleton className="h-14 rounded-lg" />
+        <Skeleton className="h-14 rounded-lg" />
+      </div>
+      <div className="flex flex-col gap-3">
+        <Skeleton className="h-3.5 w-11/12" />
+        <Skeleton className="h-3.5 w-4/5" />
+        <Skeleton className="h-3.5 w-3/5" />
+      </div>
+    </div>
+  );
+}
 
 export default function ConversationPage({
   params,
@@ -16,13 +38,13 @@ export default function ConversationPage({
   const convId = resolvedParams.id;
 
   const {
-    conversations,
     messages,
     hasMore,
     isLoadingMessages,
     isLoadingMore,
     isSending,
     sendMessage,
+    stopGenerating,
     loadMore,
     selectConversation,
     activeConversationId,
@@ -34,35 +56,19 @@ export default function ConversationPage({
     }
   }, [convId, activeConversationId, selectConversation]);
 
-  const activeConv = conversations.find((c) => c.id === convId);
-
   return (
-    <div className="flex flex-1 flex-col h-full overflow-hidden bg-background">
-      {/* Header bar */}
-      <div className="flex items-center justify-between px-6 py-2.5 border-b border-border/50 bg-card/30">
-        <div className="flex items-center gap-2 overflow-hidden">
-          <SparklesIcon className="size-4 text-primary shrink-0" />
-          <span className="text-xs font-semibold text-foreground truncate">
-            {activeConv?.title || "Conversation"}
-          </span>
-        </div>
-        <span className="text-[10px] font-mono text-muted-foreground">ID: {convId}</span>
-      </div>
-
-      {/* Message stream */}
-      <div className="flex-1 overflow-hidden">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="min-h-0 flex-1 overflow-hidden">
         {isLoadingMessages && messages.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-muted-foreground text-xs gap-2">
-            <Loader2Icon className="size-4 animate-spin text-primary" />
-            <span>Loading conversation messages...</span>
-          </div>
+          <ConversationSkeleton />
         ) : (
-          <div className="mx-auto flex h-full w-full max-w-3xl flex-1 flex-col overflow-hidden">
-            <MessageScroller
-              hasMore={hasMore}
-              isLoadingMore={isLoadingMore}
-              onLoadMore={loadMore}
-            >
+          <MessageScroller
+            hasMore={hasMore}
+            isLoadingMore={isLoadingMore}
+            onLoadMore={loadMore}
+            className="px-4 sm:px-6"
+          >
+            <div className="mx-auto flex w-full max-w-3xl flex-col gap-10">
               {messages.map((msg, index) => {
                 const isLastAssistantMessage =
                   index === messages.length - 1 &&
@@ -78,25 +84,23 @@ export default function ConversationPage({
                     isStreaming={isLastAssistantMessage}
                     citations={msg.citations}
                     insufficientEvidence={msg.insufficientEvidence}
+                    onOpenSource={openSource}
                   />
                 );
               })}
-            </MessageScroller>
-          </div>
+            </div>
+          </MessageScroller>
         )}
       </div>
 
-      {/* Floating Prompt Input bar */}
-      <div className="shrink-0 border-t border-border/60 bg-background/90 px-4 py-3.5 backdrop-blur-md">
-        <div className="mx-auto max-w-3xl flex flex-col gap-1.5">
-          <ChatInput onSend={(text) => sendMessage(text, convId)} isLoading={isSending} />
-          <div className="flex items-center justify-between px-1 text-[11px] text-muted-foreground/70">
-            <span>RAG Context Search active</span>
-            <span>
-              Press <kbd className="font-mono text-[10px] bg-muted px-1.5 py-0.5 rounded border border-border">Enter ↵</kbd> to send
-            </span>
-          </div>
-        </div>
+      <div className="shrink-0 bg-gradient-to-t from-background from-75% to-transparent px-4 pt-3 pb-5 sm:px-6">
+        <ChatInput
+          onSend={(text) => sendMessage(text, convId)}
+          onStop={() => stopGenerating(convId)}
+          isLoading={isSending}
+          placeholder="Ask a follow-up..."
+          className="mx-auto max-w-3xl"
+        />
       </div>
     </div>
   );

@@ -6,7 +6,7 @@ import {
   Query,
   Body,
   Sse,
-  Req,
+  SseSignal,
   HttpStatus,
   MessageEvent,
 } from '@nestjs/common';
@@ -17,7 +17,6 @@ import {
   ApiParam,
   ApiQuery,
 } from '@nestjs/swagger';
-import { type Request } from 'express';
 import { Observable } from 'rxjs';
 import { ChatService } from './services/chat.service';
 import { CreateConversationDto, SendMessageDto, GetConversationsDto } from './dto';
@@ -98,22 +97,15 @@ export class ChatController {
   })
   async sendFreshMessageStream(
     @Body() dto: SendMessageDto,
-    @Req() req: Request,
+    @SseSignal() signal: AbortSignal,
   ): Promise<Observable<MessageEvent>> {
-    const abortController = new AbortController();
-    if (req && typeof req.on === 'function') {
-      req.on('close', () => {
-        abortController.abort();
-      });
-    }
-
     return this.chatService.sendMessageStream({
       userQuery: dto.query,
       userId: dto.userId,
       title: dto.title,
       topK: dto.topK,
       similarityThreshold: dto.similarityThreshold,
-      signal: abortController.signal,
+      signal,
       traceId: dto.traceId,
     });
   }
@@ -142,15 +134,8 @@ export class ChatController {
   async sendMessageStream(
     @Param('id') id: string,
     @Body() dto: SendMessageDto,
-    @Req() req: Request,
+    @SseSignal() signal: AbortSignal,
   ): Promise<Observable<MessageEvent>> {
-    const abortController = new AbortController();
-    if (req && typeof req.on === 'function') {
-      req.on('close', () => {
-        abortController.abort();
-      });
-    }
-
     const conversationId = id === 'new' ? undefined : id;
 
     return this.chatService.sendMessageStream({
@@ -160,7 +145,7 @@ export class ChatController {
       title: dto.title,
       topK: dto.topK,
       similarityThreshold: dto.similarityThreshold,
-      signal: abortController.signal,
+      signal,
       traceId: dto.traceId,
     });
   }

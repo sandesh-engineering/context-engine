@@ -3,6 +3,7 @@ import {
   Inject,
   Optional,
   NotFoundException,
+  BadRequestException,
   MessageEvent,
 } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
@@ -11,6 +12,8 @@ import { ConversationEntity } from '../entities/conversation.entity';
 import { MessageEntity, MessageRole } from '../entities/message.entity';
 import { GetConversationsDto, PaginatedConversationsResponse } from '../dto';
 import { RetrievalService } from '../../retrieval/services/retrieval.service';
+import { RetrievalQueryValidator } from '../../retrieval/services/retrieval-query-validator.service';
+import { InvalidQueryException } from '../../retrieval/exceptions/invalid-query.exception';
 import { ChatContextAssembler } from './chat-context-assembler.service';
 import type { ILlmProvider, MessageHistory } from '../interfaces/llm-provider.interface';
 import { LLM_PROVIDER } from '../interfaces/llm-provider.interface';
@@ -52,6 +55,7 @@ export class ChatService {
     private readonly contextAssembler: ChatContextAssembler,
     @Inject(LLM_PROVIDER)
     private readonly llmProvider: ILlmProvider,
+    private readonly queryValidator: RetrievalQueryValidator,
     @Optional() convRepo?: Repository<ConversationEntity>,
     @Optional() msgRepo?: Repository<MessageEntity>,
   ) {
@@ -149,6 +153,23 @@ export class ChatService {
     return conversation;
   }
 
+  /**
+   * Applies the retrieval query rules up front so rejected queries never create
+   * a conversation or a stored USER message.
+   *
+   * @throws {BadRequestException} Throws if the query fails validation
+   */
+  private assertValidQuery(userQuery: string): void {
+    try {
+      this.queryValidator.validate(userQuery);
+    } catch (err) {
+      if (err instanceof InvalidQueryException) {
+        throw new BadRequestException(err.message);
+      }
+      throw err;
+    }
+  }
+
   private isUuid(id?: string): boolean {
     if (!id) return false;
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
@@ -178,6 +199,8 @@ export class ChatService {
     if (params.conversationId && params.conversationId !== 'new') {
       conversation = await this.conversationRepository.findOne({
         where: { id: params.conversationId },
+        /* LLM session columns are hidden by default (select: false); the stream needs them */
+        select: { id: true, providerSessionId: true, contextState: true },
       });
 
       if (!conversation) {
@@ -188,7 +211,12 @@ export class ChatService {
           `Conversation with ID '${params.conversationId}' was not found.`,
         );
       }
-    } else {
+    }
+
+    /* Reject invalid queries before creating or persisting anything */
+    this.assertValidQuery(params.userQuery);
+
+    if (!conversation) {
       /* Handle fresh chat session creation dynamically */
       const autoTitle =
         params.title ||
@@ -222,7 +250,7 @@ export class ChatService {
         attributes: {
           'conversation.id': conversation.id,
           'user.query_length': params.userQuery.length,
-          [SemanticAttributes.KE_TENANT_ID]: params.userId || 'default',
+          'user.id': params.userId || 'anonymous',
         },
       },
       async (span) => {
@@ -276,7 +304,19 @@ export class ChatService {
       topK: params.topK,
       similarityThreshold: params.similarityThreshold,
       traceId: params.traceId,
+      signal: params.signal,
     });
+
+    /* Client disconnected during retrieval: skip the LLM call entirely */
+    if (params.signal?.aborted) {
+      this.logger.logEvent('chat.request.aborted', {
+        conversationId: conversation.id,
+        stage: 'retrieval',
+        traceId: params.traceId,
+      });
+      subject.complete();
+      return;
+    }
 
     /* Step 3: Handle insufficient evidence fail-fast */
     if (retrievalResult.candidates.length === 0) {
@@ -411,6 +451,9 @@ export class ChatService {
             }
           }
 
+          /* Providers end their stream quietly on abort, so re-check after the loop */
+          isAborted = isAborted || Boolean(params.signal?.aborted);
+
           llmSpan.setAttribute('llm.tokens_emitted', tokenCount);
           llmSpan.setAttribute('llm.aborted', isAborted);
 
@@ -426,6 +469,11 @@ export class ChatService {
               ...(finalProviderSessionId ? { providerSessionId: finalProviderSessionId } : {}),
               ...(finalContextState ? { contextState: finalContextState } : {}),
             });
+          }
+
+          /* Nothing was generated before the client left: no answer to persist */
+          if (isAborted && !accumulatedContent) {
+            return;
           }
 
           /* Step 6: Commit complete ASSISTANT message turn to database */
@@ -460,6 +508,15 @@ export class ChatService {
             } as StreamEventPayload),
           } as MessageEvent);
         } catch (llmError) {
+          /* Client disconnected while the provider request was in flight */
+          if (params.signal?.aborted) {
+            this.logger.logEvent('chat.request.aborted', {
+              conversationId: conversation.id,
+              stage: 'llm_generation',
+              traceId: params.traceId,
+            });
+            return;
+          }
           this.logger.logError('chat.llm.failed', llmError, {
             conversationId: conversation.id,
           });

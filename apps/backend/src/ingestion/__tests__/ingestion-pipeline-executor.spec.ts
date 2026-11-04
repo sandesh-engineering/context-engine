@@ -23,7 +23,7 @@ describe('IngestionPipelineExecutor Unit Tests', () => {
 
   const mockJobId = 'job-123';
   const mockVersionId = 'ver-456';
-  const mockStorageKey = 'tenants/t1/ver-456/test.pdf';
+  const mockStorageKey = 'documents/d1/versions/ver-456/raw.bin';
 
   const mockParsedDoc: ParsedDocument = {
     metadata: { pageCount: 1 },

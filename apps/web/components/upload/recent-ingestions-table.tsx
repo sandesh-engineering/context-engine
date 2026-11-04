@@ -4,14 +4,26 @@ import * as React from "react";
 import type { IngestionJob, IngestionStatus } from "@repo/api";
 import { Badge } from "@repo/ui/components/badge";
 import { Button } from "@repo/ui/components/button";
+import { Skeleton } from "@repo/ui/components/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@repo/ui/components/tabs";
 import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@repo/ui/components/empty";
+import {
+  BanIcon,
+  CheckCircle2Icon,
+  ClockIcon,
   FileTextIcon,
   GlobeIcon,
-  RefreshCwIcon,
   Loader2Icon,
-  XCircleIcon,
+  RefreshCwIcon,
   RotateCcwIcon,
-  BanIcon,
+  XCircleIcon,
+  XIcon,
 } from "lucide-react";
 import { api } from "../../lib/api-client";
 import { cn } from "@repo/ui/lib/utils";
@@ -22,6 +34,13 @@ export interface RecentIngestionsTableProps {
 }
 
 type StatusTab = "all" | "active" | "completed" | "failed";
+
+const STATUS_TABS: { value: StatusTab; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "active", label: "Active" },
+  { value: "completed", label: "Completed" },
+  { value: "failed", label: "Failed" },
+];
 
 export function RecentIngestionsTable({
   refreshKey,
@@ -89,27 +108,42 @@ export function RecentIngestionsTable({
     switch (s) {
       case "AVAILABLE":
       case "COMPLETED":
-        return <Badge variant="success" className="px-2.5 py-0.5 font-medium">AVAILABLE</Badge>;
+        return (
+          <Badge variant="success">
+            <CheckCircle2Icon />
+            Available
+          </Badge>
+        );
       case "PROCESSING":
       case "RUNNING":
         return (
-          <Badge variant="info" className="px-2.5 py-0.5 font-medium flex items-center gap-1">
-            <Loader2Icon className="size-3 animate-spin" />
-            <span>RUNNING</span>
+          <Badge variant="info">
+            <Loader2Icon className="animate-spin" />
+            Processing
           </Badge>
         );
       case "CANCELLED":
         return (
-          <Badge variant="secondary" className="px-2.5 py-0.5 font-medium text-muted-foreground bg-muted flex items-center gap-1">
-            <BanIcon className="size-3" />
-            <span>CANCELLED</span>
+          <Badge variant="muted">
+            <BanIcon />
+            Cancelled
           </Badge>
         );
       case "FAILED":
-        return <Badge variant="destructive" className="px-2.5 py-0.5 font-medium">FAILED</Badge>;
+        return (
+          <Badge variant="destructive">
+            <XCircleIcon />
+            Failed
+          </Badge>
+        );
       case "PENDING":
       default:
-        return <Badge variant="warning" className="px-2.5 py-0.5 font-medium">PENDING</Badge>;
+        return (
+          <Badge variant="warning">
+            <ClockIcon />
+            Pending
+          </Badge>
+        );
     }
   };
 
@@ -137,163 +171,144 @@ export function RecentIngestionsTable({
     : "Recent Ingestion Jobs & History";
 
   const description = filterSource === "FILE"
-    ? "Live queue of pending, running, completed, and cancelled PDF document extraction tasks"
+    ? "Extraction and indexing status for uploaded PDFs."
     : filterSource === "URL"
-    ? "Live queue of pending, running, completed, and cancelled public web crawling jobs"
-    : "Queue and history of running, pending, and finished document processing tasks";
+    ? "Fetch and indexing status for imported URLs."
+    : "Status of recent document processing tasks.";
+
+  const EmptyIcon = filterSource === "URL" ? GlobeIcon : FileTextIcon;
 
   return (
-    <div className="flex flex-col gap-5">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-1">
-        <div className="flex flex-col gap-0.5">
-          <h3 className="text-base font-semibold tracking-tight text-foreground">
+    <section className="flex flex-col gap-4" aria-labelledby="ingestions-heading">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex flex-col gap-1">
+          <h3 id="ingestions-heading" className="text-lg font-semibold tracking-tight text-foreground">
             {title}
           </h3>
-          <p className="text-xs text-muted-foreground">{description}</p>
+          <p className="text-sm text-muted-foreground">{description}</p>
         </div>
 
-        <div className="flex items-center gap-2 self-start sm:self-center">
-          {/* Status Filter Pills */}
-          <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-xl border border-border/40 text-xs">
-            {(["all", "active", "completed", "failed"] as StatusTab[]).map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setActiveTab(tab)}
-                className={cn(
-                  "px-2.5 py-1 rounded-lg font-medium capitalize transition-none",
-                  activeTab === tab
-                    ? "bg-primary text-primary-foreground font-semibold shadow-xs"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                )}
-              >
-                {tab === "failed" ? "Failed / Cancelled" : tab}
-              </button>
-            ))}
-          </div>
+        <div className="flex items-center gap-2">
+          <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as StatusTab)}>
+            <TabsList aria-label="Filter jobs by status">
+              {STATUS_TABS.map((tab) => (
+                <TabsTrigger key={tab.value} value={tab.value}>
+                  {tab.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
 
           <Button
-            size="sm"
-            variant="outline"
+            size="icon-sm"
+            variant="ghost"
             onClick={fetchJobs}
             disabled={isLoading}
             aria-label="Refresh ingestion jobs list"
-            className="h-8 px-3 text-xs gap-1.5 text-muted-foreground hover:text-foreground rounded-xl"
           >
-            <RefreshCwIcon
-              className={`size-3.5 ${isLoading ? "animate-spin" : ""}`}
-            />
-            <span className="hidden sm:inline">Refresh</span>
+            <RefreshCwIcon className={cn(isLoading && "animate-spin")} />
           </Button>
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-border/80 bg-card shadow-xs">
+      <div className="overflow-hidden rounded-xl border bg-card shadow-xs">
         {isLoading && jobs.length === 0 ? (
-          <div className="flex items-center justify-center py-16 text-muted-foreground text-xs gap-3">
-            <Loader2Icon className="size-4 animate-spin text-primary" />
-            <span>Loading ingestion jobs...</span>
+          <div className="flex flex-col divide-y" aria-label="Loading ingestion jobs">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="flex items-center gap-3 px-4 py-3.5">
+                <Skeleton className="size-8 rounded-lg" />
+                <div className="flex flex-1 flex-col gap-2">
+                  <Skeleton className="h-3.5 w-2/5" />
+                  <Skeleton className="h-3 w-1/4" />
+                </div>
+                <Skeleton className="h-5 w-20" />
+              </div>
+            ))}
           </div>
         ) : filteredJobs.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center px-4">
-            <div className="flex size-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground mb-3">
-              {filterSource === "URL" ? <GlobeIcon className="size-6" /> : <FileTextIcon className="size-6" />}
-            </div>
-            <p className="text-sm font-semibold text-foreground">
-              No jobs found
-            </p>
-            <p className="text-xs text-muted-foreground mt-1 max-w-xs leading-relaxed">
-              {activeTab !== "all"
-                ? `No ${activeTab} ingestion jobs in the current queue.`
-                : filterSource === "URL"
-                ? "Provide a public URL above to start an asynchronous ingestion job."
-                : "Select or drop a PDF file above to start uploading and indexing."}
-            </p>
-          </div>
+          <Empty className="py-12">
+            <EmptyHeader>
+              <EmptyMedia>
+                <EmptyIcon />
+              </EmptyMedia>
+              <EmptyTitle>No jobs found</EmptyTitle>
+              <EmptyDescription>
+                {activeTab !== "all"
+                  ? `No ${STATUS_TABS.find((t) => t.value === activeTab)?.label.toLowerCase()} jobs right now.`
+                  : filterSource === "URL"
+                  ? "Import a URL above to start your first ingestion job."
+                  : "Upload a PDF above to start your first ingestion job."}
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="border-b border-border/70 bg-muted/40 font-semibold text-muted-foreground uppercase tracking-wider text-[10px]">
+            <table className="w-full text-left text-[13px]">
+              <thead className="border-b bg-muted/40 text-xs text-muted-foreground">
                 <tr>
-                  <th scope="col" className="px-6 py-4">
-                    Source / Document
+                  <th scope="col" className="h-9 px-4 font-medium">
+                    Document
                   </th>
-                  <th scope="col" className="px-6 py-4">
-                    Type
-                  </th>
-                  <th scope="col" className="px-6 py-4">
+                  <th scope="col" className="h-9 px-4 font-medium">
                     Status
                   </th>
-                  <th scope="col" className="px-6 py-4">
-                    Date
+                  <th scope="col" className="hidden h-9 px-4 font-medium sm:table-cell">
+                    Added
                   </th>
-                  <th scope="col" className="px-6 py-4 text-right">
-                    Actions
+                  <th scope="col" className="h-9 px-4 text-right font-medium">
+                    <span className="sr-only">Actions</span>
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border/60">
+              <tbody className="divide-y">
                 {filteredJobs.map((job) => {
                   const s = (job.status || "PENDING").toUpperCase();
                   const isCancelable = s === "PENDING" || s === "PROCESSING" || s === "RUNNING";
                   const isResumable = s === "FAILED" || s === "CANCELLED";
                   const isOperating = actionInProgress === job.id;
+                  const name = job.filename || job.url || job.title || "Untitled";
+                  const SourceIcon = job.sourceType === "URL" ? GlobeIcon : FileTextIcon;
 
                   return (
-                    <tr
-                      key={job.id}
-                      className="hover:bg-muted/20 transition-colors"
-                    >
-                      <td className="px-6 py-4.5">
-                        <div className="flex items-center gap-3.5 max-w-sm truncate">
-                          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                            {job.sourceType === "FILE" ? (
-                              <FileTextIcon className="size-4" />
-                            ) : (
-                              <GlobeIcon className="size-4" />
-                            )}
+                    <tr key={job.id} className="transition-colors hover:bg-muted/30">
+                      <td className="max-w-0 px-4 py-3 sm:w-[55%]">
+                        <div className="flex items-center gap-3">
+                          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                            <SourceIcon className="size-4" />
                           </div>
-                          <div className="flex flex-col overflow-hidden">
-                            <span
-                              className="font-semibold text-foreground truncate text-xs"
-                              title={job.filename || job.url || job.title || "Untitled"}
-                            >
-                              {job.filename || job.url || job.title || "Untitled"}
+                          <div className="flex min-w-0 flex-col gap-0.5">
+                            <span className="truncate font-medium text-foreground" title={name}>
+                              {name}
                             </span>
-                            <span className="font-mono text-[10px] text-muted-foreground truncate mt-0.5">
-                              ID: {job.id}
+                            <span className="truncate font-mono text-[11px] text-muted-foreground" title={job.id}>
+                              {job.id}
                             </span>
                           </div>
                         </div>
                       </td>
-                      <td className="px-6 py-4.5">
-                        <span className="font-mono text-[11px] text-muted-foreground px-2 py-0.5 rounded-md bg-muted/60 border border-border/40">
-                          {job.sourceType || "FILE"}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4.5">{getStatusBadge(job.status)}</td>
-                      <td className="px-6 py-4.5 font-mono text-[11px] text-muted-foreground whitespace-nowrap">
+                      <td className="px-4 py-3 whitespace-nowrap">{getStatusBadge(job.status)}</td>
+                      <td className="hidden px-4 py-3 whitespace-nowrap text-muted-foreground tabular-nums sm:table-cell">
                         {new Date(job.createdAt).toLocaleDateString(undefined, {
                           month: "short",
                           day: "numeric",
                           year: "numeric",
                         })}
                       </td>
-                      <td className="px-6 py-4.5 text-right whitespace-nowrap">
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
                         {isCancelable && (
                           <Button
                             size="xs"
-                            variant="destructive"
+                            variant="ghost"
                             onClick={() => handleCancelJob(job.id)}
                             disabled={isOperating}
-                            className="h-7 px-2.5 text-[11px] gap-1 rounded-lg"
+                            className="text-muted-foreground hover:text-destructive"
                           >
                             {isOperating ? (
-                              <Loader2Icon className="size-3 animate-spin" />
+                              <Loader2Icon data-icon="inline-start" className="animate-spin" />
                             ) : (
-                              <XCircleIcon className="size-3.5" />
+                              <XIcon data-icon="inline-start" />
                             )}
-                            <span>Cancel</span>
+                            Cancel
                           </Button>
                         )}
 
@@ -303,21 +318,14 @@ export function RecentIngestionsTable({
                             variant="outline"
                             onClick={() => handleRetryJob(job.id)}
                             disabled={isOperating}
-                            className="h-7 px-2.5 text-[11px] gap-1 rounded-lg border-primary/40 text-primary hover:bg-primary/10"
                           >
                             {isOperating ? (
-                              <Loader2Icon className="size-3 animate-spin" />
+                              <Loader2Icon data-icon="inline-start" className="animate-spin" />
                             ) : (
-                              <RotateCcwIcon className="size-3.5" />
+                              <RotateCcwIcon data-icon="inline-start" />
                             )}
-                            <span>Resume</span>
+                            Resume
                           </Button>
-                        )}
-
-                        {!isCancelable && !isResumable && (
-                          <span className="text-[11px] text-muted-foreground/60 font-mono">
-                            Completed
-                          </span>
                         )}
                       </td>
                     </tr>
@@ -328,6 +336,6 @@ export function RecentIngestionsTable({
           </div>
         )}
       </div>
-    </div>
+    </section>
   );
 }

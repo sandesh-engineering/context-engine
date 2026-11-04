@@ -52,7 +52,6 @@ function parseCliArgs(): SeedConfig {
 // REALISTIC MOCK DATA CORPUS
 // ============================================================================
 
-const TENANTS = ['demo-tenant-001', 'acme-corp', 'fintech-solutions', 'health-core', 'nexus-global'];
 const USERS = Array.from({ length: 250 }, (_, i) => `usr_${(i + 1000).toString(16)}`);
 
 const TOPICS = [

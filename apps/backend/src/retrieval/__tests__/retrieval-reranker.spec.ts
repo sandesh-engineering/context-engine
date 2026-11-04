@@ -173,6 +173,7 @@ describe('RetrievalService - Qwen Reranker Integration', () => {
       expect(rerankerProvider.rerank).toHaveBeenCalledWith(
         'How does authentication work?',
         candidates.map((c) => ({ id: c.id, content: c.content })),
+        { signal: undefined },
       );
 
       // Sliced to requested topK (5)

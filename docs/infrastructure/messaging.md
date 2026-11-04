@@ -58,7 +58,7 @@ All outbox and SQS messages adhere to a standardized JSON schema:
     "jobId": "98765432-b12c-34d5-e678-901234567890",
     "documentId": "doc-111",
     "versionId": "ver-222",
-    "s3Key": "tenants/ten_default/documents/doc-111/versions/ver-222/raw.bin"
+    "s3Key": "documents/doc-111/versions/ver-222/raw.bin"
   }
 }
 ```
@@ -77,7 +77,7 @@ For external object ingestion jobs, the payload conveys the source access model 
     "versionId": "ver-333",
     "sourceType": "external_url",
     "sourceUrl": "https://external-bucket.s3.amazonaws.com/files/report.pdf?AWSAccessKeyId=...",
-    "destinationS3Key": "tenants/ten_default/documents/doc-222/versions/ver-333/raw.bin",
+    "destinationS3Key": "documents/doc-222/versions/ver-333/raw.bin",
     "maxSizeBytes": 524288000,
     "expectedChecksumSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   }

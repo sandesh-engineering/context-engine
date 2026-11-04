@@ -564,12 +564,12 @@ Never use user-supplied filenames directly as S3 object keys. User filenames cau
 
 ```text
 AVOID:   s3://knowledge-engine-docs/uploads/User File (1) #%$.pdf
-PREFER:  s3://knowledge-engine-docs/tenants/{tenantId}/objects/{objectId}/source.bin
+PREFER:  s3://knowledge-engine-docs/documents/{documentId}/versions/{versionId}/raw.bin
 ```
 
-* **Standard Key Format**: `tenants/{tenant_id}/documents/{document_id}/versions/{version_id}/raw.bin`
+* **Standard Key Format**: `documents/{document_id}/versions/{version_id}/raw.bin` (multi-tenancy is deferred, so keys carry no tenant prefix; objects uploaded earlier keep their stored `tenants/...` key)
 * **Original Filename**: Preserved exclusively in PostgreSQL metadata (`document_versions.original_filename`).
-* **Benefits**: Perfect collision prevention, strict multi-tenant path isolation, simple lifecycle rules, and support for arbitrary file extensions.
+* **Benefits**: Perfect collision prevention, simple lifecycle rules, and support for arbitrary file extensions.
 
 ---
 
@@ -659,11 +659,10 @@ Every log line is emitted in JSON, correlated with `traceId` and `importId`. Que
   "service": "ingestion-worker",
   "traceId": "trace_01J7ABCDEF123",
   "importId": "imp_01J7ABC123XYZ",
-  "tenantId": "ten_default",
   "documentId": "doc_01J7ABC456DEF",
   "versionId": "ver_01J7ABC789GHI",
   "sourceHost": "s3.us-west-2.amazonaws.com",
-  "destinationKey": "tenants/ten_default/documents/doc_01J7ABC456DEF/versions/ver_01J7ABC789GHI/raw.bin",
+  "destinationKey": "documents/doc_01J7ABC456DEF/versions/ver_01J7ABC789GHI/raw.bin",
   "stage": "UPLOADING",
   "bytesTransferred": 52428800,
   "durationMs": 4320,

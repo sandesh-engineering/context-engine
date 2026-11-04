@@ -2,33 +2,55 @@
 
 import * as React from "react";
 import { usePathname } from "next/navigation";
+import { ChevronRightIcon } from "lucide-react";
 import { SidebarTrigger } from "@repo/ui/components/sidebar";
-import { Badge } from "@repo/ui/components/badge";
+import { Separator } from "@repo/ui/components/separator";
+import { cn } from "@repo/ui/lib/utils";
+import { useConversation } from "../context/conversation-context";
+import { ThemeToggle } from "./theme-toggle";
+
+function getPageTitle(pathname: string) {
+  if (pathname.startsWith("/upload/url")) return "Public URL Ingestion";
+  if (pathname.startsWith("/upload")) return "PDF Document Ingestion";
+  if (pathname.startsWith("/chat") || pathname === "/") return "Interactive Chat";
+  return "Knowledge Engine";
+}
 
 export function AppHeader() {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "/";
+  const { conversations } = useConversation();
 
-  const getPageTitle = () => {
-    if (pathname?.startsWith("/upload/url")) return "Public URL Ingestion";
-    if (pathname?.startsWith("/upload/file") || pathname?.startsWith("/upload")) return "PDF Document Ingestion";
-    if (pathname?.startsWith("/chat") || pathname === "/") return "Interactive Chat";
-    return "Knowledge Engine";
-  };
+  const conversationId = pathname.startsWith("/chat/")
+    ? pathname.slice("/chat/".length)
+    : null;
+  const conversationTitle = conversationId
+    ? (conversations.find((c) => c.id === conversationId)?.title ?? "Untitled chat")
+    : null;
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 w-full items-center justify-between border-b border-border/80 bg-background/95 px-4 backdrop-blur-sm">
-      <div className="flex items-center gap-3">
-        <SidebarTrigger />
-        <div className="h-4 w-px bg-border" />
-        <h1 className="text-sm font-semibold text-foreground tracking-tight">
-          {getPageTitle()}
+    <header className="sticky top-0 z-30 flex h-14 w-full shrink-0 items-center gap-2 border-b bg-background/80 px-3 backdrop-blur-sm sm:px-4">
+      <SidebarTrigger />
+      <Separator orientation="vertical" className="mx-1 my-4.5" />
+      <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-sm">
+        <h1
+          className={cn(
+            "font-medium",
+            conversationTitle ? "shrink-0 text-muted-foreground" : "truncate text-foreground"
+          )}
+        >
+          {getPageTitle(pathname)}
         </h1>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <Badge variant="outline" className="hidden sm:inline-flex text-[11px] font-mono">
-          Tenant: default
-        </Badge>
+        {conversationTitle && (
+          <>
+            <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground/60" aria-hidden="true" />
+            <span className="truncate font-medium text-foreground" aria-current="page">
+              {conversationTitle}
+            </span>
+          </>
+        )}
+      </nav>
+      <div className="ml-auto flex items-center">
+        <ThemeToggle />
       </div>
     </header>
   );

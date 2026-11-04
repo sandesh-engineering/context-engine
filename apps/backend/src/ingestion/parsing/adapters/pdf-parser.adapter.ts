@@ -8,6 +8,9 @@ import {
   ParsedBlock,
 } from '../interfaces/document-parser.interface';
 
+/* Upper bound on pages extracted per document; larger PDFs are rejected */
+const MAX_PDF_PAGES = 2000;
+
 @Injectable()
 export class PdfParserAdapter implements DocumentParser {
   private readonly logger = new Logger(PdfParserAdapter.name);
@@ -52,13 +55,22 @@ export class PdfParserAdapter implements DocumentParser {
 
     let pdfData: pdfParse.Result;
     try {
-      pdfData = await pdfParse(fileBuffer);
+      /* `max` stops text extraction after MAX_PDF_PAGES pages; `numpages` still reports the total */
+      pdfData = await pdfParse(fileBuffer, { max: MAX_PDF_PAGES });
     } catch (err) {
       const parseErr = new Error(
         `Failed to parse PDF binary file structure: ${err instanceof Error ? err.message : String(err)}`,
       );
       (parseErr as any).code = 'INTEGRITY';
       throw parseErr;
+    }
+
+    if (pdfData.numpages > MAX_PDF_PAGES) {
+      const tooManyPagesErr = new Error(
+        `PDF has ${pdfData.numpages} pages; maximum supported is ${MAX_PDF_PAGES} (PDF_TOO_MANY_PAGES)`,
+      );
+      (tooManyPagesErr as any).code = 'INTEGRITY';
+      throw tooManyPagesErr;
     }
 
     const rawText = pdfData.text || '';

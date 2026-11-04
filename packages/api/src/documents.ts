@@ -108,4 +108,13 @@ export class DocumentsApi {
       return { success: true, jobId, status: 'PENDING' };
     }
   }
+
+  /**
+   * URL of the stored file of a document version (e.g. a cited source),
+   * suitable for opening directly in a new browser tab.
+   */
+  getDocumentFileUrl(versionId: string): string {
+    const base = (this.http.defaults.baseURL ?? '').replace(/\/$/, '');
+    return `${base}/documents/versions/${encodeURIComponent(versionId)}/file`;
+  }
 }

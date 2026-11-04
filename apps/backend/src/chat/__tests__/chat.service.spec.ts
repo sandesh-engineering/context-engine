@@ -10,6 +10,7 @@ import { ChatContextAssembler } from '../services/chat-context-assembler.service
 import { ConversationEntity } from '../entities/conversation.entity';
 import { MessageEntity, MessageRole } from '../entities/message.entity';
 import { RetrievalService } from '../../retrieval/services/retrieval.service';
+import { RetrievalQueryValidator } from '../../retrieval/services/retrieval-query-validator.service';
 import { LLM_PROVIDER } from '../interfaces/llm-provider.interface';
 
 describe('ChatService', () => {
@@ -66,6 +67,7 @@ describe('ChatService', () => {
         { provide: DataSource, useValue: mockDataSource },
         { provide: RetrievalService, useValue: retrievalService },
         { provide: LLM_PROVIDER, useValue: llmProvider },
+        RetrievalQueryValidator,
       ],
     }).compile();
 

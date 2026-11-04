@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Input } from "@repo/ui/components/input";
 import { Button } from "@repo/ui/components/button";
+import { Alert, AlertDescription, AlertTitle } from "@repo/ui/components/alert";
 import { GlobeIcon, CheckCircle2Icon, AlertCircleIcon, Loader2Icon, ArrowUpRightIcon } from "lucide-react";
 import { api } from "../../lib/api-client";
 
@@ -70,14 +71,19 @@ export function UrlImportForm({ onSuccess }: UrlImportFormProps) {
     setJobId(null);
   };
 
+  const isSubmitting = status === "submitting";
+
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-6">
+    <form onSubmit={handleSubmit} className="flex flex-col gap-5" noValidate>
       <div className="flex flex-col gap-2">
-        <label htmlFor="url-input" className="text-xs font-semibold text-foreground">
-          Public Resource URL <span className="text-destructive">*</span>
+        <label htmlFor="url-input" className="text-sm font-medium text-foreground">
+          Resource URL
         </label>
         <div className="relative flex items-center">
-          <GlobeIcon className="absolute left-3.5 size-4 text-muted-foreground pointer-events-none" />
+          <GlobeIcon
+            className="pointer-events-none absolute left-3 size-4 text-muted-foreground"
+            aria-hidden="true"
+          />
           <Input
             id="url-input"
             type="url"
@@ -85,85 +91,81 @@ export function UrlImportForm({ onSuccess }: UrlImportFormProps) {
             onChange={(e) => {
               setUrl(e.target.value);
               if (errorMessage) setErrorMessage(null);
+              if (status === "error") setStatus("idle");
             }}
             placeholder="https://example.com/research-paper.pdf"
-            disabled={status === "submitting"}
-            className="pl-10 h-11 text-sm rounded-xl"
+            disabled={isSubmitting}
+            aria-invalid={!!errorMessage && status !== "error"}
+            aria-describedby="url-input-help"
+            className="h-11 pl-9 md:text-base"
             required
             data-testid="url-import-input"
           />
         </div>
-        <p className="text-[11px] text-muted-foreground">
-          Link to publicly accessible web documentation, whitepapers, or online PDF documents.
-        </p>
+        {errorMessage && status !== "error" ? (
+          <p id="url-input-help" className="text-[13px] text-destructive" role="alert">
+            {errorMessage}
+          </p>
+        ) : (
+          <p id="url-input-help" className="text-[13px] text-muted-foreground">
+            A publicly reachable web page, documentation site or hosted PDF.
+          </p>
+        )}
       </div>
 
       <div className="flex flex-col gap-2">
-        <label htmlFor="title-input" className="text-xs font-semibold text-foreground">
-          Custom Document Title <span className="text-muted-foreground font-normal">(Optional)</span>
+        <label htmlFor="title-input" className="text-sm font-medium text-foreground">
+          Title <span className="font-normal text-muted-foreground">(optional)</span>
         </label>
         <Input
           id="title-input"
           type="text"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="e.g. Q3 Financial Architecture Report"
-          disabled={status === "submitting"}
-          className="h-11 text-sm rounded-xl"
+          placeholder="Q3 Financial Architecture Report"
+          disabled={isSubmitting}
+          className="h-11 md:text-base"
           data-testid="url-title-input"
         />
       </div>
 
-      {errorMessage && (
-        <div className="flex items-center gap-2.5 rounded-xl border border-destructive/20 bg-destructive/10 p-4 text-xs font-medium text-destructive animate-in fade-in-50">
-          <AlertCircleIcon className="size-4 shrink-0" />
-          <span>{errorMessage}</span>
-        </div>
+      {status === "error" && errorMessage && (
+        <Alert variant="destructive">
+          <AlertCircleIcon />
+          <AlertTitle>Import failed</AlertTitle>
+          <AlertDescription>{errorMessage}</AlertDescription>
+        </Alert>
       )}
 
-      {status === "success" && (
-        <div className="flex items-start gap-4 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-5 text-emerald-800 dark:text-emerald-300">
-          <CheckCircle2Icon className="size-5 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
-          <div className="flex flex-col gap-1.5 text-xs">
-            <span className="font-semibold text-sm">Ingestion Job Queued!</span>
-            <p className="text-emerald-700/90 dark:text-emerald-300/90 leading-relaxed">
-              The external resource will be fetched, parsed, and embedded asynchronously in the background.
-            </p>
-            <div className="flex items-center gap-2 mt-1">
-              <span className="font-mono text-[11px] text-muted-foreground">Job ID: {jobId}</span>
-              <span>·</span>
-              <button
-                type="button"
-                onClick={resetForm}
-                className="font-semibold text-emerald-700 dark:text-emerald-300 underline underline-offset-2 hover:opacity-80"
-              >
+      {status === "success" ? (
+        <Alert variant="success">
+          <CheckCircle2Icon />
+          <AlertTitle>Import queued</AlertTitle>
+          <AlertDescription>
+            <p>The resource will be fetched, parsed and embedded in the background.</p>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="font-mono text-[11px] text-muted-foreground">Job {jobId}</span>
+              <Button variant="link" size="xs" className="h-auto px-0" onClick={resetForm}>
                 Import another URL
-              </button>
+              </Button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {status !== "success" && (
-        <div className="flex justify-end pt-2">
+          </AlertDescription>
+        </Alert>
+      ) : (
+        <div className="flex justify-end">
           <Button
             type="submit"
-            disabled={status === "submitting" || !url.trim()}
+            disabled={isSubmitting || !url.trim()}
             size="lg"
-            className="w-full sm:w-auto font-semibold gap-2 px-6 h-10 shadow-xs"
+            className="w-full px-4 sm:w-auto"
             data-testid="submit-url-button"
           >
-            {status === "submitting" ? (
-              <>
-                <Loader2Icon className="size-4 animate-spin mr-1" />
-                Queueing Ingestion...
-              </>
+            {isSubmitting ? (
+              <Loader2Icon data-icon="inline-start" className="animate-spin" />
             ) : (
-              <>
-                <span>Queue URL Ingestion</span>
-                <ArrowUpRightIcon className="size-4" />
-              </>
+              <ArrowUpRightIcon data-icon="inline-start" />
             )}
+            {isSubmitting ? "Queueing..." : "Import URL"}
           </Button>
         </div>
       )}

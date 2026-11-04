@@ -40,7 +40,6 @@ describe('Validation Pipeline Tests', () => {
       stream: inputStream,
       originalFilename: 'document.pdf',
       title: 'Valid PDF',
-      tenantId: 'tenant-1',
     });
 
     expect(result.byteSize).toBe(Buffer.byteLength(pdfContent));
@@ -60,7 +59,6 @@ describe('Validation Pipeline Tests', () => {
         stream: inputStream,
         originalFilename: 'spoofed.pdf',
         title: 'Spoofed File',
-        tenantId: 'tenant-1',
       }),
     ).rejects.toThrow(BadRequestException);
   });
@@ -76,7 +74,6 @@ describe('Validation Pipeline Tests', () => {
         stream: inputStream,
         originalFilename: 'malicious.pdf',
         title: 'Spoofed Header',
-        tenantId: 'tenant-1',
       }),
     ).rejects.toThrow(BadRequestException);
   });
@@ -89,7 +86,6 @@ describe('Validation Pipeline Tests', () => {
         stream: inputStream,
         originalFilename: 'empty.pdf',
         title: 'Empty Document',
-        tenantId: 'tenant-1',
       }),
     ).rejects.toThrow(BadRequestException);
   });
@@ -104,7 +100,6 @@ describe('Validation Pipeline Tests', () => {
         stream: inputStream,
         originalFilename: 'oversized.pdf',
         title: 'Oversized PDF',
-        tenantId: 'tenant-1',
         maxSizeBytes: 20,
       }),
     ).rejects.toThrow(PayloadTooLargeException);
@@ -122,7 +117,6 @@ describe('Validation Pipeline Tests', () => {
         stream: failingStream,
         originalFilename: 'failing.pdf',
         title: 'Stream Error',
-        tenantId: 'tenant-1',
       }),
     ).rejects.toThrow('Underlying stream connection reset');
   });
