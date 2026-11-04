@@ -1,8 +1,20 @@
-
 name: CI/CD Pipeline
 
 on:
   workflow_dispatch:
+    inputs:
+      since:
+        description: Only rebuild/deploy apps changed since this git ref (e.g. last deployed SHA). Empty = everything.
+        type: string
+        default: ""
+      image_tag:
+        description: Rollback/redeploy - deploy this existing tag (a past commit SHA) and skip quality + build.
+        type: string
+        default: ""
+      apps:
+        description: With image_tag only - which images to deploy (each must have been pushed with that tag).
+        type: string
+        default: backend worker web
 
 permissions:
   contents: read
@@ -11,140 +23,34 @@ concurrency:
   group: knowledge-engine-deployment
   cancel-in-progress: false
 
-env:
-  CI: true
-
 jobs:
   quality:
-    name: Quality Gate
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11.25.0
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Lint
-        run: pnpm turbo run lint
-
-      - name: Type check
-        run: pnpm turbo run check-types
-
-      - name: Tests
-        run: pnpm turbo run test
+    if: inputs.image_tag == ''
+    uses: ./.github/workflows/quality.yml
+    with:
+      since: ${{ inputs.since }}
 
   build-and-push:
-    name: Build and Push (${{ matrix.app }})
+    uses: ./.github/workflows/build-image.yml
     needs: quality
-    runs-on: ubuntu-latest
-
-    strategy:
-      fail-fast: true
-      matrix:
-        include:
-          - app: backend
-            dockerfile: apps/backend/Dockerfile
-            image: knowledge-engine-backend
-          - app: web
-            dockerfile: apps/web/Dockerfile
-            image: knowledge-engine-web
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build and push image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ${{ matrix.dockerfile }}
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image }}:${{ github.sha }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image }}:latest
-          cache-from: type=gha,scope=${{ matrix.app }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
+    if: needs.quality.outputs.images != '[]' # nothing changed -> skip build (and deploy)
+    with:
+      images: ${{ needs.quality.outputs.images }}
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
   deploy:
-    name: Deploy to EC2
+    uses: ./.github/workflows/deploy.yml
     needs: [quality, build-and-push]
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Deploy over SSH
-        uses: appleboy/ssh-action@v1.2.0
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: ${{ secrets.EC2_SSH_PORT || 22 }}
-          envs: DOCKERHUB_USERNAME,DOCKERHUB_TOKEN
-          command_timeout: 10m
-          script: |
-            set -eu
-
-            echo "Authenticating with Docker Hub..."
-            printf '%s' "$DOCKERHUB_TOKEN" |
-              docker login -u "$DOCKERHUB_USERNAME" --password-stdin
-
-            DEPLOY_DIR=""
-
-            for dir in \
-              "$HOME/knowledge-engine" \
-              /app \
-              /opt/knowledge-engine
-            do
-              if [ -d "$dir" ]; then
-                for file in \
-                  docker-compose.prod.yaml \
-                  docker-compose.yaml \
-                  docker-compose.yml
-                do
-                  if [ -f "$dir/$file" ]; then
-                    DEPLOY_DIR="$dir"
-                    COMPOSE_FILE="$file"
-                    break 2
-                  fi
-                done
-              fi
-            done
-
-            if [ -z "$DEPLOY_DIR" ]; then
-              echo "ERROR: No Compose file found."
-              exit 1
-            fi
-
-            cd "$DEPLOY_DIR"
-            echo "Deploying from $DEPLOY_DIR/$COMPOSE_FILE"
-
-            docker compose -f "$COMPOSE_FILE" pull
-            docker compose -f "$COMPOSE_FILE" up -d --remove-orphans
-
-            echo "Verifying running containers..."
-            docker compose -f "$COMPOSE_FILE" ps
-
-            docker image prune -f
-
-            echo "Deployment completed."
+    # Production deploys only from main. !cancelled() lets the job evaluate when quality/build were
+    # skipped (rollback); otherwise both must have succeeded.
+    if: >-
+      !cancelled() && github.ref == 'refs/heads/main' && (
+        inputs.image_tag != '' ||
+        (needs.quality.result == 'success' && needs.build-and-push.result == 'success')
+      )
+    with:
+      apps: ${{ inputs.image_tag != '' && inputs.apps || needs.quality.outputs.apps }}
+      image_tag: ${{ inputs.image_tag }}
+    secrets: inherit
