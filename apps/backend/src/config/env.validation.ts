@@ -78,7 +78,11 @@ export const envSchema = z.object({
 
   /* Outbox Polling & Retry Boundaries */
   OUTBOX_POLL_INTERVAL_MS: z.coerce.number().min(100).default(5000),
-  OUTBOX_BATCH_SIZE: z.coerce.number().min(1).default(100),
+  /* SQS SendMessageBatch accepts at most 10 entries */
+  OUTBOX_BATCH_SIZE: z.coerce.number().int().min(1).max(10).default(10),
+  OUTBOX_POLLER_ENABLED: z
+    .preprocess((val) => val === undefined ? undefined : val === 'true' || val === true, z.boolean())
+    .default(true),
   OUTBOX_MAX_RETRIES: z.coerce.number().min(1).default(5),
 
   /* Local File Processing & Temp Directories */
@@ -90,6 +94,12 @@ export const envSchema = z.object({
   OLLAMA_BASE_URL: z.string().default('http://localhost:11434'),
   OLLAMA_EMBEDDING_MODEL: z.string().default('embeddinggemma'),
   OLLAMA_MODEL: z.string().default('gemma:2b'),
+  /* Upper bound for one Ollama request (embedding batch, or waiting for the first byte of a chat stream) */
+  OLLAMA_TIMEOUT_MS: z.coerce.number().int().min(1000).default(120000),
+
+  /* Which adapter backs embeddings and chat. Changing EMBEDDING_PROVIDER requires re-embedding all documents. */
+  EMBEDDING_PROVIDER: z.enum(['ollama', 'gemini']).default('ollama'),
+  LLM_PROVIDER: z.enum(['ollama', 'gemini']).default('ollama'),
   CHAT_SYSTEM_PROMPT: z
     .string()
     .default(
@@ -130,6 +140,9 @@ export const envSchema = z.object({
   HYBRID_SEARCH_RRF_K: z.coerce.number().min(1).default(60),
   HYBRID_SEARCH_FINAL_TOP_K: z.coerce.number().min(1).default(8),
 
+  /* Optional bearer token required by /metrics when set */
+  METRICS_TOKEN: z.string().min(16).optional(),
+
   /* Resilience & Circuit Breaker */
   CIRCUIT_BREAKER_FAILURE_THRESHOLD: z.coerce.number().default(5),
   CIRCUIT_BREAKER_RESET_TIMEOUT_MS: z.coerce.number().default(30000),
@@ -166,6 +179,13 @@ function findUnsafeProductionSettings(env: Env): string[] {
   }
   if (env.AWS_SECRET_ACCESS_KEY && DEV_CREDENTIAL_VALUES.has(env.AWS_SECRET_ACCESS_KEY)) {
     issues.push('AWS_SECRET_ACCESS_KEY must not use the LocalStack value (unset it to use the IAM role)');
+  }
+
+  if ((env.EMBEDDING_PROVIDER === 'gemini' || env.LLM_PROVIDER === 'gemini') && !env.GEMINI_API_KEY) {
+    issues.push('GEMINI_API_KEY is required when a Gemini provider is selected');
+  }
+  if (!env.METRICS_TOKEN) {
+    console.warn('METRICS_TOKEN is not set: /metrics is reachable without authentication');
   }
 
   const endpointSettings = {

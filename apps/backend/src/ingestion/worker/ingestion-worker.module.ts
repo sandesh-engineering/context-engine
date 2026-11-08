@@ -14,7 +14,7 @@ import {
   EMBEDDING_PROVIDER,
   type IEmbeddingProvider,
 } from '../embeddings/interfaces/embedding-provider.interface';
-import { OllamaEmbeddingProvider } from '../embeddings/providers/ollama-embedding.provider';
+import { embeddingProviderDefinition } from '../embeddings/embedding-provider.factory';
 import { IngestionPipelineExecutor } from '../pipeline/ingestion-pipeline.executor';
 import { OBJECT_STORAGE_SERVICE } from '../storage/interfaces/object-storage.interface';
 import { S3StorageAdapter } from '../storage/adapters/s3-storage.adapter';
@@ -70,10 +70,7 @@ import { S3Client } from '@aws-sdk/client-s3';
         });
       },
     },
-    {
-      provide: EMBEDDING_PROVIDER,
-      useClass: OllamaEmbeddingProvider,
-    },
+    embeddingProviderDefinition,
     {
       provide: SqsIngestionPollerService,
       inject: [

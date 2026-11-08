@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, MOCK_ANSWER, MOCK_CONVERSATION_ID } from "./fixtures";
 
 test.describe("Interactive Chat Interface", () => {
   test("renders empty state and prompt input", async ({ page }) => {
@@ -22,13 +22,13 @@ test.describe("Interactive Chat Interface", () => {
     await promptInput.fill("What is the architecture overview?");
     await page.keyboard.press("Enter");
 
-    // Expect user message bubble to appear
-    await expect(
-      page.getByText("What is the architecture overview?")
-    ).toBeVisible();
+    // Expect user message bubble to appear (scoped to <main>: the sidebar also lists the new chat's title)
+    const main = page.getByRole("main");
+    await expect(main.getByText("What is the architecture overview?")).toBeVisible();
 
-    // Input should be cleared after send
-    await expect(promptInput).toBeEmpty();
+    // The mocked answer streams in on the new conversation's page
+    await expect(page).toHaveURL(new RegExp(`/chat/${MOCK_CONVERSATION_ID}$`));
+    await expect(main.getByText(MOCK_ANSWER)).toBeVisible();
   });
 
   test("creates a new conversation thread when clicking New Chat", async ({

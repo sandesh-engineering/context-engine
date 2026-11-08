@@ -24,6 +24,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
+import type { Readable } from 'stream';
 import busboy from 'busboy';
 import { IngestionService } from './ingestion.service';
 
@@ -183,6 +184,15 @@ export class IngestionController {
     let titleField: string | undefined;
     let fileHandled = false;
     let responded = false;
+    let activeFileStream: Readable | undefined;
+
+    /* A client that disconnects mid-upload ends neither busboy nor the file stream; fail the
+       stream so the storage upload aborts its multipart upload and the request settles */
+    req.on('close', () => {
+      if (!req.complete && activeFileStream) {
+        activeFileStream.destroy(new Error('Client disconnected during upload'));
+      }
+    });
 
     const respond = (status: number, body: Record<string, unknown>): void => {
       if (responded || res.headersSent) return;
@@ -219,6 +229,7 @@ export class IngestionController {
         return;
       }
       fileHandled = true;
+      activeFileStream = fileStream;
 
       const filename = info.filename || 'document.pdf';
       const effectiveTitle = titleField || filename;

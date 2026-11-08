@@ -9,17 +9,12 @@ import { ConfigService } from '@nestjs/config';
 import {
   type IMessagePublisher,
   MESSAGE_PUBLISHER,
-  OutboxMessagePayload,
 } from '../interfaces/message-publisher.interface';
 import { OutboxRepository } from '../../database/repositories/outbox.repository';
 import { StructuredLogger, LogEvents } from '../../../common/logger';
+import { EMPTY_RELAY_RESULT, relayOutboxBatch, type OutboxRelayResult } from './outbox-relay';
 
-export interface PollerBatchResult {
-  polledCount: number;
-  publishedCount: number;
-  dlqCount: number;
-  failedCount: number;
-}
+export type PollerBatchResult = OutboxRelayResult;
 
 export interface IngestionOutboxPollerOptions {
   batchSize?: number;
@@ -27,48 +22,48 @@ export interface IngestionOutboxPollerOptions {
   autoStart?: boolean;
 }
 
+/* SQS SendMessageBatch accepts at most 10 entries */
+const MAX_SQS_BATCH = 10;
+
 /**
- * Asynchronous background poller service that periodically queries pending ingestion outbox events
- * from PostgreSQL (`ingestion_outbox` table) and batch-publishes them to SQS.
+ * Background poller that relays pending `ingestion_outbox` events to the ingestion SQS queue.
+ *
+ * @remarks
+ * Runs only in the worker process (WORKER_ENABLED=true, set by main-worker.ts). Retry counting
+ * and DLQ rerouting live in {@link relayOutboxBatch}.
  */
 @Injectable()
 export class IngestionOutboxPollerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new StructuredLogger(IngestionOutboxPollerService.name);
   private readonly batchSize: number;
   private readonly pollIntervalMs: number;
+  private readonly maxRetries: number;
   private isPolling = false;
   private timerHandle?: NodeJS.Timeout;
-  private readonly maxRetries: number;
-
-  private readonly messagePublisher: IMessagePublisher;
 
   constructor(
     @Inject(MESSAGE_PUBLISHER)
-    messagePublisher: IMessagePublisher,
+    private readonly messagePublisher: IMessagePublisher,
     private readonly outboxRepository: OutboxRepository,
     private readonly configService: ConfigService,
     @Optional() options?: IngestionOutboxPollerOptions,
   ) {
-    this.messagePublisher = messagePublisher;
-    this.batchSize =
-      options?.batchSize ||
-      this.configService.get<number>('OUTBOX_POLL_BATCH_SIZE') ||
-      10;
-
+    this.batchSize = Math.min(
+      options?.batchSize || this.configService.get<number>('OUTBOX_BATCH_SIZE') || MAX_SQS_BATCH,
+      MAX_SQS_BATCH,
+    );
     this.pollIntervalMs =
-      options?.pollIntervalMs ||
-      this.configService.get<number>('OUTBOX_POLL_INTERVAL_MS') ||
-      1000;
-
-    this.maxRetries =
-      this.configService.get<number>('OUTBOX_MAX_RETRIES') ||
-      3;
+      options?.pollIntervalMs || this.configService.get<number>('OUTBOX_POLL_INTERVAL_MS') || 5000;
+    this.maxRetries = this.configService.get<number>('OUTBOX_MAX_RETRIES') || 5;
   }
 
   onModuleInit(): void {
-    const enabled = this.configService.get<string>('OUTBOX_POLLER_ENABLED') !== 'false';
-    if (enabled) {
+    const isWorker = this.configService.get<boolean>('WORKER_ENABLED') === true;
+    const enabled = this.configService.get<boolean>('OUTBOX_POLLER_ENABLED') !== false;
+    if (isWorker && enabled) {
       this.startPolling();
+    } else {
+      this.logger.debugEvent('outbox.poll.disabled', { isWorker, enabled });
     }
   }
 
@@ -99,108 +94,19 @@ export class IngestionOutboxPollerService implements OnModuleInit, OnModuleDestr
 
   async pollAndPublishBatch(customBatchSize?: number): Promise<PollerBatchResult> {
     if (this.isPolling) {
-      return { polledCount: 0, publishedCount: 0, dlqCount: 0, failedCount: 0 };
+      return { ...EMPTY_RELAY_RESULT };
     }
 
     this.isPolling = true;
-    const effectiveBatchSize = customBatchSize || this.batchSize;
-    let polledCount = 0;
-    let publishedCount = 0;
-    let dlqCount = 0;
-    let failedCount = 0;
-
     try {
-      const pendingEvents =
-        await this.outboxRepository.fetchPendingOutboxEvents(effectiveBatchSize);
-
-      polledCount = pendingEvents.length;
-
-      if (polledCount === 0) {
-        return { polledCount: 0, publishedCount: 0, dlqCount: 0, failedCount: 0 };
-      }
-
-      this.logger.debugEvent(LogEvents.OUTBOX_POLL_STARTED, { batchSize: polledCount });
-
-      const messages: OutboxMessagePayload[] = pendingEvents.map((evt) => ({
-        eventId: evt.event_id,
-        eventType: evt.topic,
-        timestamp: evt.created_at
-          ? new Date(evt.created_at).toISOString()
-          : new Date().toISOString(),
-        traceId: (evt.metadata?.traceId as string) || undefined,
-        traceparent: (evt.metadata?.traceparent as string) || undefined,
-        tracestate: (evt.metadata?.tracestate as string) || undefined,
-        metadata: evt.metadata || undefined,
-        payload: evt.payload || {},
-      }));
-
-      /* Execute batch publish to primary message queue */
-      const publishResult = await this.messagePublisher.publishBatch(messages);
-
-      /* Mark successful items as processed in database */
-      if (publishResult.successful.length > 0) {
-        const successIds = publishResult.successful.map((item) => item.eventId);
-        await this.outboxRepository.markEventsProcessed(successIds);
-        publishedCount = successIds.length;
-      }
-
-      /* Handle failed items: increment retries or reroute to DLQ */
-      if (publishResult.failed.length > 0) {
-        failedCount = publishResult.failed.length;
-        const failedEventIds = publishResult.failed.map((item) => item.eventId);
-        const dlqEligibleIds: string[] = [];
-        const retryEligibleIds: string[] = [];
-
-        for (const failedId of failedEventIds) {
-          const eventRecord = pendingEvents.find((evt) => evt.event_id === failedId);
-          const currentRetries = eventRecord?.retries || 0;
-          if (currentRetries + 1 >= this.maxRetries) {
-            dlqEligibleIds.push(failedId);
-          } else {
-            retryEligibleIds.push(failedId);
-          }
-        }
-
-        if (retryEligibleIds.length > 0) {
-          await this.outboxRepository.incrementRetries(retryEligibleIds);
-          this.logger.warn('Incremented ingestion outbox retry attempt counters', {
-            retryCount: retryEligibleIds.length,
-            eventIds: retryEligibleIds,
-          });
-        }
-
-        if (dlqEligibleIds.length > 0) {
-          const failedMessages = messages.filter((m) =>
-            dlqEligibleIds.includes(m.eventId),
-          );
-
-          try {
-            const dlqResult = await this.messagePublisher.publishToDlq(
-              failedMessages,
-              `Batch publish failed after ${this.maxRetries} retries`,
-            );
-            const dlqSuccessIds = dlqResult.successful.map((item) => item.eventId);
-            if (dlqSuccessIds.length > 0) {
-              await this.outboxRepository.markEventsFailedDlq(dlqSuccessIds);
-              dlqCount = dlqSuccessIds.length;
-            }
-          } catch (dlqErr) {
-            this.logger.error('Failed rerouting unprocessable ingestion outbox batch to DLQ', {
-              dlqCount: dlqEligibleIds.length,
-              error: dlqErr instanceof Error ? dlqErr.message : String(dlqErr),
-            });
-          }
-        }
-      }
-
-      this.logger.log('Completed ingestion outbox relay iteration', {
-        polledCount,
-        publishedCount,
-        dlqCount,
-        failedCount,
+      return await relayOutboxBatch({
+        store: this.outboxRepository,
+        publisher: this.messagePublisher,
+        batchSize: Math.min(customBatchSize || this.batchSize, MAX_SQS_BATCH),
+        maxRetries: this.maxRetries,
+        logger: this.logger,
+        label: 'ingestion',
       });
-
-      return { polledCount, publishedCount, dlqCount, failedCount };
     } catch (err) {
       this.logger.error('Ingestion Outbox Poller iteration failed', {
         error: err instanceof Error ? err.message : String(err),

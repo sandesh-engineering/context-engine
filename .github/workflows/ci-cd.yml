@@ -40,17 +40,17 @@ jobs:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
-  deploy:
-    uses: ./.github/workflows/deploy.yml
-    needs: [quality, build-and-push]
-    # Production deploys only from main. !cancelled() lets the job evaluate when quality/build were
-    # skipped (rollback); otherwise both must have succeeded.
-    if: >-
-      !cancelled() && github.ref == 'refs/heads/main' && (
-        inputs.image_tag != '' ||
-        (needs.quality.result == 'success' && needs.build-and-push.result == 'success')
-      )
-    with:
-      apps: ${{ inputs.image_tag != '' && inputs.apps || needs.quality.outputs.apps }}
-      image_tag: ${{ inputs.image_tag }}
-    secrets: inherit
+  # deploy:
+  #   uses: ./.github/workflows/deploy.yml
+  #   needs: [quality, build-and-push]
+  #   # Production deploys only from main. !cancelled() lets the job evaluate when quality/build were
+  #   # skipped (rollback); otherwise both must have succeeded.
+  #   if: >-
+  #     !cancelled() && github.ref == 'refs/heads/main' && (
+  #       inputs.image_tag != '' ||
+  #       (needs.quality.result == 'success' && needs.build-and-push.result == 'success')
+  #     )
+  #   with:
+  #     apps: ${{ inputs.image_tag != '' && inputs.apps || needs.quality.outputs.apps }}
+  #     image_tag: ${{ inputs.image_tag }}
+  #   secrets: inherit

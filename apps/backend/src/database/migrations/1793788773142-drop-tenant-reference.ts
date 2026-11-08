@@ -4,7 +4,8 @@ export class DropTenantReference1793788773142 implements MigrationInterface {
     name = 'DropTenantReference1793788773142'
 
     public async up(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`DROP INDEX "public"."document_chunks_embedding_hnsw_idx"`);
+        /* IF EXISTS: this index was created outside migrations, so fresh databases never had it */
+        await queryRunner.query(`DROP INDEX IF EXISTS "public"."document_chunks_embedding_hnsw_idx"`);
         await queryRunner.query(`ALTER TABLE "documents" DROP COLUMN "tenant_id"`);
     }
 

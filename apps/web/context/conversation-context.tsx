@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import type { ChatMessage, Conversation } from "@repo/api";
+import { getApiErrorMessage } from "@repo/api";
 import { api } from "../lib/api-client";
 
 interface ConversationContextType {
@@ -16,6 +17,8 @@ interface ConversationContextType {
   /** True while a reply is streaming into the active conversation. */
   isSending: boolean;
   error: string | null;
+  /** Set when the conversation list could not be loaded (as opposed to being empty). */
+  conversationsError: string | null;
   createNewConversation: (title?: string) => Promise<Conversation>;
   sendMessage: (
     text: string,
@@ -46,6 +49,14 @@ type ThreadMap = Readonly<Record<string, ConversationThread>>;
 const EMPTY_THREAD: ConversationThread = { messages: [], hasMore: false, nextCursor: null };
 
 const STOPPED_PLACEHOLDER = "Response stopped.";
+
+/** Stream key for a new chat whose conversation id the server has not reported yet. */
+const PENDING_CONVERSATION_KEY = "__pending__";
+
+/** Same rule as the backend's auto title, so the sidebar entry does not jump when it refreshes. */
+function autoTitle(query: string): string {
+  return query.length > 35 ? `${query.slice(0, 35)}...` : query;
+}
 
 function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === "AbortError";
@@ -80,6 +91,7 @@ export function ConversationProvider({
     React.useState<boolean>(true);
   const [isLoadingMore, setIsLoadingMore] = React.useState<boolean>(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [conversationsError, setConversationsError] = React.useState<string | null>(null);
 
   // One controller per conversation with a reply in flight. Doubles as the
   // synchronous "is streaming" check, since state updates land asynchronously.
@@ -115,12 +127,13 @@ export function ConversationProvider({
   const fetchConversations = React.useCallback(async () => {
     try {
       setIsLoadingConversations(true);
-      setError(null);
       const res = await api.conversations.getConversations();
       setConversations(res);
+      setConversationsError(null);
     } catch (err: unknown) {
-      console.warn("Could not reach backend conversations API, using offline fallback:", err);
-      setConversations([]);
+      console.warn("Could not load conversations:", err);
+      // Keep whatever list is already shown; just report that it could not be refreshed.
+      setConversationsError(getApiErrorMessage(err, "Could not load conversations."));
     } finally {
       setIsLoadingConversations(false);
     }
@@ -220,114 +233,133 @@ export function ConversationProvider({
       const trimmed = text.trim();
       if (!trimmed) return;
 
-      let convId = targetConvId || activeConversationId;
+      const existingConvId = targetConvId || activeConversationId || undefined;
+      // A brand-new chat streams under a placeholder key until the server reports its id.
+      const initialKey = existingConvId ?? PENDING_CONVERSATION_KEY;
       // Only one reply streams into a conversation at a time.
-      if (convId && streamControllersRef.current.has(convId)) return;
+      if (streamControllersRef.current.has(initialKey)) return;
 
-      if (!convId) {
-        const title = trimmed.slice(0, 30) + (trimmed.length > 30 ? "..." : "");
-        const newConv = await createNewConversation(title);
-        convId = newConv.id;
-      }
-
-      const streamConvId = convId;
       const controller = new AbortController();
-      streamControllersRef.current.set(streamConvId, controller);
-      setStreamingIds((prev) => withId(prev, streamConvId, true));
-      setActiveConversationId(streamConvId);
-
-      const userMessageId = `user-${Date.now()}`;
-      const assistantMessageId = `asst-${Date.now()}`;
-
-      const userMessage: ChatMessage = {
-        id: userMessageId,
-        conversationId: streamConvId,
-        role: "user",
-        content: trimmed,
-        createdAt: new Date().toISOString(),
-      };
-
-      const assistantMessagePlaceholder: ChatMessage = {
-        id: assistantMessageId,
-        conversationId: streamConvId,
-        role: "assistant",
-        content: "",
-        createdAt: new Date().toISOString(),
-      };
-
-      // Set optimistic messages immediately into the conversation's own thread,
-      // so navigating elsewhere mid-stream never mixes threads.
-      updateThread(streamConvId, (thread) => ({
-        ...thread,
-        messages: [...thread.messages, userMessage, assistantMessagePlaceholder],
-      }));
+      streamControllersRef.current.set(initialKey, controller);
+      setStreamingIds((prev) => withId(prev, initialKey, true));
       setError(null);
-      options?.onConversationReady?.(streamConvId);
+
+      const now = Date.now();
+      const createdAt = new Date(now).toISOString();
+      const userMessageId = `user-${now}`;
+      const assistantMessageId = `asst-${now}`;
+
+      let convId = existingConvId;
+
+      // Optimistic question + empty answer, placed in the conversation's own thread so
+      // navigating elsewhere mid-stream never mixes threads.
+      const startThread = (id: string) => {
+        updateThread(id, (thread) => ({
+          ...thread,
+          messages: [
+            ...thread.messages,
+            { id: userMessageId, conversationId: id, role: "user", content: trimmed, createdAt },
+            { id: assistantMessageId, conversationId: id, role: "assistant", content: "", createdAt },
+          ],
+        }));
+      };
+
+      if (convId) {
+        setActiveConversationId(convId);
+        startThread(convId);
+        options?.onConversationReady?.(convId);
+      }
 
       try {
         const result = await api.chat.sendMessage(
           {
-            conversationId: streamConvId,
+            // No id: the server validates the question first and only then creates the
+            // conversation, so a rejected question never leaves an empty chat behind.
+            conversationId: existingConvId,
             message: trimmed,
             stream: true,
+            onConversationId: (id) => {
+              if (convId) return;
+              convId = id;
+              streamControllersRef.current.delete(PENDING_CONVERSATION_KEY);
+              streamControllersRef.current.set(id, controller);
+              setStreamingIds((prev) => withId(withId(prev, PENDING_CONVERSATION_KEY, false), id, true));
+              startThread(id);
+              setActiveConversationId(id);
+              setConversations((prev) =>
+                prev.some((c) => c.id === id)
+                  ? prev
+                  : [{ id, title: autoTitle(trimmed), createdAt, updatedAt: createdAt }, ...prev]
+              );
+              options?.onConversationReady?.(id);
+            },
             onToken: (token: string) => {
-              updateMessage(streamConvId, assistantMessageId, (msg) => ({
+              if (!convId) return;
+              updateMessage(convId, assistantMessageId, (msg) => ({
                 ...msg,
                 content: msg.content + token,
               }));
             },
             onCitation: (citations) => {
-              updateMessage(streamConvId, assistantMessageId, (msg) => ({ ...msg, citations }));
+              if (!convId) return;
+              updateMessage(convId, assistantMessageId, (msg) => ({ ...msg, citations }));
             },
           },
           { signal: controller.signal }
         );
 
-        // Finalize assistant message with backend-assigned id and citations
-        updateMessage(streamConvId, assistantMessageId, (msg) => ({
-          ...msg,
-          id: result.message?.id || msg.id,
-          content: result.message?.content || msg.content,
-          citations: result.citations || msg.citations,
-          insufficientEvidence: result.insufficientEvidence,
-        }));
-
-        if (result.conversationId && result.conversationId !== streamConvId) {
-          convId = result.conversationId;
-          setActiveConversationId(convId);
+        if (convId) {
+          // Finalize assistant message with backend-assigned id and citations
+          updateMessage(convId, assistantMessageId, (msg) => ({
+            ...msg,
+            id: result.message?.id || msg.id,
+            content: result.message?.content || msg.content,
+            citations: result.citations || msg.citations,
+            insufficientEvidence: result.insufficientEvidence,
+          }));
         }
 
         // Refresh thread list to display updated conversation title
         fetchConversations();
       } catch (err: unknown) {
+        if (!convId) {
+          // Nothing exists on the server yet: let the caller (new-chat page) show the error.
+          if (isAbortError(err)) return undefined;
+          throw new Error(getApiErrorMessage(err, "Could not start a conversation. Is the backend running?"));
+        }
+        const threadId = convId;
         if (isAbortError(err)) {
           // Stopped by the user: keep whatever streamed in so far.
-          updateMessage(streamConvId, assistantMessageId, (msg) =>
+          updateMessage(threadId, assistantMessageId, (msg) =>
             msg.content ? msg : { ...msg, content: STOPPED_PLACEHOLDER }
           );
         } else {
           console.error("Chat API stream error:", err);
-          const errorMsg =
-            err instanceof Error
-              ? err.message
-              : "An unexpected error occurred while communicating with Knowledge Engine.";
+          const errorMsg = getApiErrorMessage(
+            err,
+            "An unexpected error occurred while communicating with Knowledge Engine."
+          );
           setError(errorMsg);
-          updateMessage(streamConvId, assistantMessageId, (msg) => ({
+          updateMessage(threadId, assistantMessageId, (msg) => ({
             ...msg,
-            content: `⚠️ ${errorMsg}`,
+            content: msg.content ? `${msg.content}\n\n⚠️ ${errorMsg}` : `⚠️ ${errorMsg}`,
           }));
         }
       } finally {
-        streamControllersRef.current.delete(streamConvId);
-        setStreamingIds((prev) => withId(prev, streamConvId, false));
+        const finalKey = convId ?? PENDING_CONVERSATION_KEY;
+        if (streamControllersRef.current.get(finalKey) === controller) {
+          streamControllersRef.current.delete(finalKey);
+        }
+        setStreamingIds((prev) => withId(withId(prev, finalKey, false), PENDING_CONVERSATION_KEY, false));
       }
 
       return convId;
     },
-    [activeConversationId, createNewConversation, fetchConversations, updateMessage, updateThread]
+    [activeConversationId, fetchConversations, updateMessage, updateThread]
   );
 
-  const isSending = activeConversationId !== null && streamingIds.has(activeConversationId);
+  // On the new-chat page (no active conversation) the pending stream counts as sending.
+  const isSending = streamingIds.has(activeConversationId ?? PENDING_CONVERSATION_KEY);
   const isLoadingMessages = activeConversationId !== null && loadingIds.has(activeConversationId);
 
   return (
@@ -343,6 +375,7 @@ export function ConversationProvider({
         isLoadingMore,
         isSending,
         error,
+        conversationsError,
         createNewConversation,
         sendMessage,
         stopGenerating,

@@ -5,9 +5,7 @@ import { RetrievalQueryValidator } from './services/retrieval-query-validator.se
 import { RetrievalService } from './services/retrieval.service';
 import { VectorSearchRepository } from './repositories/vector-search.repository';
 import { DocumentChunkEntity } from '../ingestion/database/entities/document-chunk.entity';
-import { EMBEDDING_PROVIDER } from '../ingestion/embeddings/interfaces/embedding-provider.interface';
-import { OllamaEmbeddingProvider } from '../ingestion/embeddings/providers/ollama-embedding.provider';
-import { GeminiEmbeddingProvider } from '../ingestion/embeddings/providers/gemini-embedding.provider';
+import { embeddingProviderDefinition } from '../ingestion/embeddings/embedding-provider.factory';
 import { AppConfigService } from '../config/app-config.service';
 import { RERANKER_PROVIDER } from './interfaces/reranker-provider.interface';
 import { HttpQwenRerankerProvider } from './providers/http-qwen-reranker.provider';
@@ -23,12 +21,7 @@ import { HttpTeiRerankerProvider } from './providers/http-tei-reranker.provider'
     RetrievalQueryValidator,
     VectorSearchRepository,
     RetrievalService,
-    OllamaEmbeddingProvider,
-    GeminiEmbeddingProvider,
-    {
-      provide: EMBEDDING_PROVIDER,
-      useClass: OllamaEmbeddingProvider,
-    },
+    embeddingProviderDefinition,
     HttpQwenRerankerProvider,
     HttpTeiRerankerProvider,
     {

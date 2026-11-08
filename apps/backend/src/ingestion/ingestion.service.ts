@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Readable, Transform } from 'stream';
+import { Readable, Transform, pipeline } from 'stream';
 import type {
   IObjectStorageService,
   StreamUploadResult,
@@ -47,6 +47,8 @@ export interface DocumentUploadResponse {
   sha256Digest: string;
   byteSize: number;
   createdAt: Date;
+  /** True when identical bytes were already uploaded; the existing document is returned. */
+  duplicate?: boolean;
 }
 
 export interface IngestionJobItem {
@@ -58,6 +60,8 @@ export interface IngestionJobItem {
   status: string;
   createdAt: string;
   byteSize?: number;
+  /** Reason of the last failed attempt (FAILED jobs only). */
+  errorMessage?: string;
 }
 
 export interface DocumentFile {
@@ -113,6 +117,7 @@ export class IngestionService {
       status: job.status,
       createdAt: job.createdAt ? job.createdAt.toISOString() : new Date().toISOString(),
       byteSize: Number(job.version?.byteSize || 0),
+      errorMessage: job.status === IngestionJobStatus.FAILED ? job.errorMessage : undefined,
     }));
   }
 
@@ -205,8 +210,34 @@ export class IngestionService {
           params,
         );
 
-        /* Step 3: Atomically commit Document, Version, IngestionJob, Outbox in DB */
+        /* Steps 3-4 share the catch below, so a failed lookup or commit removes the staged object */
         try {
+          /* Step 3: Identical bytes already ingested (or in progress): reuse instead of indexing a duplicate */
+          const existing = await this.jobsRepository.findReusableJobByDigest(uploadResult.sha256Digest);
+          if (existing?.version?.document) {
+            await this.deleteStagedObject(storageKey, params.traceId);
+            this.logger.logEvent(LogEvents.INGESTION_INTAKE_COMPLETED, {
+              documentId: existing.version.document.id,
+              versionId: existing.version.id,
+              jobId: existing.id,
+              duplicate: true,
+              traceId: params.traceId,
+            });
+            return {
+              documentId: existing.version.document.id,
+              versionId: existing.version.id,
+              jobId: existing.id,
+              status: existing.status,
+              stage: existing.stage,
+              storageKey: existing.version.storageKey,
+              sha256Digest: existing.version.sha256Digest,
+              byteSize: Number(existing.version.byteSize),
+              createdAt: existing.version.document.createdAt,
+              duplicate: true,
+            };
+          }
+
+          /* Step 4: Atomically commit Document, Version, IngestionJob, Outbox in DB */
           const persisted = await this.persistenceService.persistUploadedDocument({
             title: params.title,
             storageKey,
@@ -244,7 +275,7 @@ export class IngestionService {
             createdAt: persisted.document.createdAt,
           };
         } catch (dbError) {
-          /* Step 4: Consistency Handling - Execute compensating storage deletion on DB failure */
+          /* Step 5: Consistency Handling - Execute compensating storage deletion on DB failure */
           this.logger.logError(LogEvents.INGESTION_INTAKE_FAILED, dbError, {
             storageKey,
             traceId: params.traceId,
@@ -307,7 +338,11 @@ export class IngestionService {
       },
     });
 
-    const nodeStream = Readable.fromWeb(fts).pipe(sizeLimiter);
+    /* pipeline (not pipe) forwards a source error, such as a client disconnect, to sizeLimiter,
+       so the storage upload rejects and aborts its multipart upload instead of waiting forever */
+    const nodeStream = pipeline(Readable.fromWeb(fts), sizeLimiter, () => {
+      /* Errors surface through nodeStream to the storage adapter */
+    });
 
     return {
       stream: nodeStream,
@@ -339,6 +374,21 @@ export class IngestionService {
         error: uploadError instanceof Error ? uploadError.message : String(uploadError),
       });
       throw uploadError;
+    }
+  }
+
+  /**
+   * Deletes a freshly staged object that turned out to duplicate an existing upload.
+   */
+  private async deleteStagedObject(storageKey: string, traceId: string | undefined): Promise<void> {
+    try {
+      await this.storageService.deleteObject(storageKey);
+    } catch (cleanupError) {
+      this.logger.error('Failed deleting staged duplicate upload', {
+        storageKey,
+        traceId,
+        error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+      });
     }
   }
 

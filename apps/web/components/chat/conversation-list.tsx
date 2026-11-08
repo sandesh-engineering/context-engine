@@ -15,6 +15,8 @@ export interface ConversationListProps {
   activeId: string | null;
   onNavigate?: () => void;
   isLoading?: boolean;
+  /** Shown instead of the empty-state text when the list could not be loaded. */
+  loadError?: string | null;
 }
 
 export function ConversationList({
@@ -22,6 +24,7 @@ export function ConversationList({
   activeId,
   onNavigate,
   isLoading = false,
+  loadError = null,
 }: ConversationListProps) {
   if (isLoading && conversations.length === 0) {
     return (
@@ -30,6 +33,14 @@ export function ConversationList({
           <Skeleton key={w} className="h-3.5" style={{ width: `${w}%` }} />
         ))}
       </div>
+    );
+  }
+
+  if (conversations.length === 0 && loadError) {
+    return (
+      <p className="px-2 py-1 text-xs leading-relaxed text-destructive" role="alert">
+        {loadError}
+      </p>
     );
   }
 

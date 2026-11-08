@@ -110,6 +110,7 @@ export function AppSidebar() {
     conversations,
     activeConversationId,
     isLoadingConversations,
+    conversationsError,
   } = useConversation();
 
   const closeOnMobile = React.useCallback(() => {
@@ -144,6 +145,7 @@ export function AppSidebar() {
               activeId={activeChatId}
               onNavigate={closeOnMobile}
               isLoading={isLoadingConversations}
+              loadError={conversationsError}
             />
           </SidebarGroupContent>
         </SidebarGroup>

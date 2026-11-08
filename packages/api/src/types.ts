@@ -4,7 +4,8 @@ export interface ApiClientConfig {
   headers?: Record<string, string>;
 }
 
-export type IngestionStatus = 'PENDING' | 'AVAILABLE' | 'FAILED' | 'PROCESSING' | 'CANCELLED' | 'RUNNING';
+/** Mirrors the backend's IngestionJobStatus enum. */
+export type IngestionStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 
 export interface IngestionJob {
   id: string;
@@ -15,6 +16,8 @@ export interface IngestionJob {
   status: IngestionStatus | string;
   createdAt: string;
   byteSize?: number;
+  /** Reason of the last failed attempt (FAILED jobs only). */
+  errorMessage?: string;
 }
 
 export interface DocumentUploadResponse {
@@ -29,21 +32,9 @@ export interface DocumentUploadResponse {
     sha256Digest: string;
     byteSize: number;
     createdAt: string;
+    /** True when identical bytes were already uploaded; the existing document is returned. */
+    duplicate?: boolean;
   };
-}
-
-export interface ImportUrlRequest {
-  sourceUrl: string;
-  documentTitle?: string;
-  expectedChecksumSha256?: string;
-}
-
-export interface ImportJobResponse {
-  importId: string;
-  documentId: string;
-  versionId: string;
-  status: IngestionStatus;
-  createdAt: string;
 }
 
 export interface CitationMetadata {
@@ -96,6 +87,8 @@ export interface SendMessageRequest {
   topK?: number;
   similarityThreshold?: number;
   stream?: boolean;
+  /** Called once, when the server reports the conversation id (immediately for existing ones). */
+  onConversationId?: (conversationId: string) => void;
   onToken?: (token: string) => void;
   onCitation?: (citations: CitationMetadata[]) => void;
 }

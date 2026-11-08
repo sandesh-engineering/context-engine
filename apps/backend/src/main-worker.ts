@@ -1,45 +1,32 @@
+/* Must stay first: sets WORKER_ENABLED=true before config is loaded */
+import './process-role/worker';
 import { sdk } from './instrumentation';
 sdk.start();
 
 import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
 import { AppModule } from './app.module';
+import { registerGracefulShutdown } from './common/shutdown';
 
 /**
- * Bootstraps the standalone SQS worker entrypoint process.
+ * Bootstraps the standalone worker process.
  *
  * @remarks
- * - Forces `WORKER_ENABLED=true` in environment context.
- * - Creates lightweight NestJS application context (non-HTTP server).
- * - Enables shutdown hooks for graceful `SIGINT`/`SIGTERM` handling.
+ * - Runs every background loop: ingestion and embedding SQS consumers plus both outbox pollers.
+ * - Creates a NestJS application context without an HTTP server.
+ * - On SIGINT/SIGTERM, stops the loops (OnModuleDestroy) and then flushes tracing.
  *
  * @returns {Promise<void>}
  */
 async function bootstrapWorker(): Promise<void> {
   const logger = new Logger('WorkerMain');
 
-  /* Enforce WORKER_ENABLED=true for dedicated worker process entrypoint */
-  process.env.WORKER_ENABLED = 'true';
-
-  logger.log('Initializing Knowledge Engine SQS Ingestion Worker standalone process', {
-    workerEnabled: true,
-  });
+  logger.log('Initializing Knowledge Engine worker process');
 
   const app = await NestFactory.createApplicationContext(AppModule);
+  registerGracefulShutdown(app, 'WorkerMain');
 
-  app.enableShutdownHooks();
-
-  logger.log('Standalone worker process successfully initialized and running');
-
-  const handleShutdown = async (signal: string) => {
-    logger.log('Shutting down worker application context', { signal });
-    await app.close();
-    logger.log('Worker application context closed cleanly', { signal });
-    process.exit(0);
-  };
-
-  process.on('SIGINT', () => handleShutdown('SIGINT'));
-  process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+  logger.log('Worker process initialized and running');
 }
 
 bootstrapWorker().catch((error) => {

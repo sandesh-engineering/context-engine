@@ -192,6 +192,13 @@ export class IngestionPipelineExecutor {
           const chunkEntities = this.chunker.chunkDocument(parsedDocument);
           span.setAttribute('document.chunk_count', chunkEntities.length);
 
+          /* Zero chunks would write no embedding event and leave the job in EMBEDDING forever */
+          if (chunkEntities.length === 0) {
+            const emptyErr = new Error('Document produced zero chunks (NO_CHUNKS)');
+            (emptyErr as any).code = 'INTEGRITY';
+            throw emptyErr;
+          }
+
           // Persist chunks with outbox event
           await AppTracer.traceSpan(
             'document.persist_chunks',

@@ -73,3 +73,10 @@ terraform.rc
 
 .env.*
 .actrc
+# Local act runs (see .github/workflows/ci-cd.local.yml)
+.github/workflows/*.local.yml
+.secrets
+.vars
+
+# TypeScript incremental build state (stale copies make tsc --build skip emitting dist/)
+*.tsbuildinfo

@@ -9,7 +9,10 @@ import {
   SseSignal,
   HttpStatus,
   MessageEvent,
+  ParseUUIDPipe,
+  BadRequestException,
 } from '@nestjs/common';
+import { isUUID } from 'class-validator';
 import {
   ApiTags,
   ApiOperation,
@@ -78,7 +81,7 @@ export class ChatController {
     status: HttpStatus.NOT_FOUND,
     description: 'Conversation session not found',
   })
-  async getConversation(@Param('id') id: string) {
+  async getConversation(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.chatService.getConversation(id);
   }
 
@@ -136,6 +139,9 @@ export class ChatController {
     @Body() dto: SendMessageDto,
     @SseSignal() signal: AbortSignal,
   ): Promise<Observable<MessageEvent>> {
+    if (id !== 'new' && !isUUID(id)) {
+      throw new BadRequestException('Conversation id must be a UUID or "new"');
+    }
     const conversationId = id === 'new' ? undefined : id;
 
     return this.chatService.sendMessageStream({

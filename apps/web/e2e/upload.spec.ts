@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 test.describe("Document Upload Interface", () => {
   test("loads PDF upload page with dropzone and history table", async ({ page }) => {
@@ -49,18 +49,11 @@ test.describe("Document Upload Interface", () => {
     await expect(uploadButton).toBeVisible();
   });
 
-  test("validates URL input and displays job confirmation on submit", async ({
-    page,
-  }) => {
+  test("shows URL import as coming soon with the form disabled", async ({ page }) => {
     await page.goto("/upload/url");
 
-    const urlInput = page.getByTestId("url-import-input");
-    await urlInput.fill("https://example.com/research-paper.pdf");
-
-    const titleInput = page.getByTestId("url-title-input");
-    await titleInput.fill("Research Paper 2026");
-
-    const submitButton = page.getByTestId("submit-url-button");
-    await expect(submitButton).toBeEnabled();
+    await expect(page.getByText("URL import is coming soon")).toBeVisible();
+    await expect(page.getByTestId("url-import-input")).toBeDisabled();
+    await expect(page.getByTestId("submit-url-button")).toBeDisabled();
   });
 });

@@ -9,6 +9,7 @@ export * from './client';
 export * from './documents';
 export * from './conversations';
 export * from './chat';
+export * from './errors';
 
 export class KnowledgeEngineApi {
   public readonly client: ApiClient;

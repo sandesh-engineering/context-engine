@@ -69,6 +69,8 @@ describe('Ingestion Pipeline Integration Tests', () => {
     ingestionService = new IngestionService(
       storageAdapter,
       mockPersistenceService,
+      /* IngestionJobsRepository: no earlier upload with the same bytes */
+      { findReusableJobByDigest: jest.fn().mockResolvedValue(null) } as any,
       pathBuilder,
       mockConfigService,
     );

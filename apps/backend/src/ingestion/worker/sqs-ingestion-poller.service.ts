@@ -15,6 +15,7 @@ import { AppConfigService } from '../../config/app-config.service';
 import { IngestionJobsRepository } from '../database/repositories/ingestion-jobs.repository';
 import { OutboxMessagePayload } from '../messaging/interfaces/message-publisher.interface';
 import { IngestionPipelineExecutor } from '../pipeline/ingestion-pipeline.executor';
+import { IngestionJobStage, IngestionJobStatus } from '../common/enums';
 import { AppTracer, SemanticAttributes } from '../../common/telemetry';
 import { StructuredLogger, LogEvents } from '../../common/logger';
 
@@ -41,6 +42,9 @@ export class SqsIngestionPollerService implements OnModuleInit, OnModuleDestroy 
   private readonly visibilityTimeoutSeconds: number;
   private readonly concurrency: number;
   private readonly pipelineExecutor?: IngestionPipelineExecutor;
+
+  /* A PROCESSING job untouched for this long is treated as abandoned by a crashed worker */
+  private readonly staleJobAfterSeconds: number;
 
   private isRunning = false;
   private pollingPromises: Promise<void>[] = [];
@@ -69,6 +73,9 @@ export class SqsIngestionPollerService implements OnModuleInit, OnModuleDestroy 
     this.concurrency =
       options?.concurrency ?? this.appConfig.sqsPollerConcurrency;
 
+    /* Twice the visibility timeout: the first redelivery of a still-running job is left alone */
+    this.staleJobAfterSeconds = Math.max(this.visibilityTimeoutSeconds * 2, 60);
+
     const awsRegion = this.configService.get<string>('AWS_REGION') || 'us-east-1';
     const endpoint = this.configService.get<string>('AWS_ENDPOINT_URL');
     const accessKeyId = this.configService.get<string>('AWS_ACCESS_KEY_ID');
@@ -86,7 +93,8 @@ export class SqsIngestionPollerService implements OnModuleInit, OnModuleDestroy 
   }
 
   onModuleInit(): void {
-    if (this.appConfig.workerEnabled || process.env.WORKER_ENABLED === 'true') {
+    /* Only the worker process (main-worker.ts) consumes the queue */
+    if (this.appConfig.workerEnabled) {
       this.startPoller();
     } else {
       this.logger.logEvent('ingestion.worker.disabled', { workerEnabled: false });
@@ -235,14 +243,38 @@ export class SqsIngestionPollerService implements OnModuleInit, OnModuleDestroy 
           return;
         }
 
-        /* Atomic SQL stage claim (must be in SOURCE_READY stage to transition to PARSING) */
-        const { claimed, job } = await this.jobsRepository.claimJobForProcessing(jobId);
+        /*
+         * Optimistic claim: one conditional UPDATE decides which worker owns the job. Fresh, FAILED
+         * (redelivered for retry) and abandoned PROCESSING jobs can be claimed; resumed jobs keep
+         * their checkpoint stage.
+         */
+        const { claimed, job } = await this.jobsRepository.claimJobForProcessing(
+          jobId,
+          this.staleJobAfterSeconds,
+        );
 
         if (!claimed) {
+          const heldByIngestionWorker =
+            job?.status === IngestionJobStatus.PROCESSING &&
+            (job.stage === IngestionJobStage.PARSING || job.stage === IngestionJobStage.CHUNKING);
+          if (heldByIngestionWorker) {
+            /* Another worker holds the job. Keep the message: if that worker dies, the
+               redelivery picks the job up once it is stale instead of losing it. */
+            this.logger.warnEvent(LogEvents.QUEUE_DUPLICATE_SKIPPED, {
+              jobId,
+              currentStage: job!.stage,
+              currentStatus: job!.status,
+              action: 'left_for_redelivery',
+            });
+            return;
+          }
+
+          /* Missing, already completed, or handed over to the embedding stage: nothing to do */
           this.logger.warnEvent(LogEvents.QUEUE_DUPLICATE_SKIPPED, {
             jobId,
             currentStage: job?.stage || 'UNKNOWN',
             currentStatus: job?.status || 'UNKNOWN',
+            action: 'deleted',
           });
           await this.deleteSqsMessage(sqsMessage.ReceiptHandle!);
           return;
@@ -272,7 +304,9 @@ export class SqsIngestionPollerService implements OnModuleInit, OnModuleDestroy 
             messageId: sqsMessage.MessageId,
           });
           await this.jobsRepository.markJobFailed(jobId, errorMessage);
-          /* DO NOT delete message from SQS; leave for SQS visibility timeout / DLQ redrive */
+          /* DO NOT delete the message: SQS redelivers it after the visibility timeout (the FAILED job
+             is claimable again and resumes from its checkpoint) and moves it to the DLQ once the
+             queue's maxReceiveCount is reached. */
           throw error;
         }
       },

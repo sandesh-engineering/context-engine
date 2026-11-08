@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 test.describe("App Navigation & Responsive Shell", () => {
   test("switches between Chat, PDF Upload, and URL Ingestion views on desktop", async ({

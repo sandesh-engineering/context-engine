@@ -49,8 +49,9 @@ export class VectorSearchRepository {
 
     const vectorJson = JSON.stringify(queryVector);
 
-    const similarityExpression =
-      '1 - (documentChunk.embedding <=> CAST(:queryVector AS vector))';
+    /* Order by the raw cosine distance (<=>) so PostgreSQL can use the HNSW index
+       (vector_cosine_ops); similarity = 1 - distance is computed afterwards */
+    const distanceExpression = 'documentChunk.embedding <=> CAST(:queryVector AS vector)';
 
     const rows = await this.dataSource
       .getRepository(DocumentChunkEntity)
@@ -66,14 +67,14 @@ export class VectorSearchRepository {
       .addSelect('documentChunk.pageStart', 'pageStart')
       .addSelect('documentChunk.pageEnd', 'pageEnd')
       .addSelect('documentChunk.metadataJson', 'metadataJson')
-      .addSelect(similarityExpression, 'similarity')
+      .addSelect(distanceExpression, 'distance')
       .where('documentChunk.embedding IS NOT NULL')
-      .andWhere(`${similarityExpression} >= :threshold`)
+      .andWhere(`${distanceExpression} <= :maxDistance`)
       .setParameters({
         queryVector: vectorJson,
-        threshold,
+        maxDistance: 1 - threshold,
       })
-      .orderBy('similarity', 'DESC')
+      .orderBy('distance', 'ASC')
       .limit(topK)
       .getRawMany();
 
@@ -87,7 +88,7 @@ export class VectorSearchRepository {
       pageStart: row.pageStart ? Number(row.pageStart) : undefined,
       pageEnd: row.pageEnd ? Number(row.pageEnd) : undefined,
       metadataJson: row.metadataJson ?? undefined,
-      similarity: Number(row.similarity),
+      similarity: 1 - Number(row.distance),
     }));
   }
 

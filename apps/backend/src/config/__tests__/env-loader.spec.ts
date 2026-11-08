@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { getBackendRootDir, getEnvFilePaths, loadEnvFiles } from '../env-loader';
 import { envSchema } from '../env.validation';
@@ -41,19 +42,35 @@ describe('Environment Loader (env-loader)', () => {
     expect(parsed.PORT).toBe(5001);
   });
 
-  it('should load variables from existing env files into process.env', () => {
+  it('should load variables from an env file in the working directory without overriding set ones', () => {
+    /* Uses a throwaway directory so the result never depends on a developer's local .env (absent in CI) */
+    const originalCwd = process.cwd();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'env-loader-'));
+    fs.writeFileSync(
+      path.join(tempDir, '.env'),
+      'TEST_CUSTOM_LOAD_ENV_VAR=from-file\nTEST_PRESET_ENV_VAR=from-file\n',
+    );
     delete process.env.TEST_CUSTOM_LOAD_ENV_VAR;
-    loadEnvFiles();
-    // PORT from apps/backend/.env should be loaded
-    expect(process.env.PORT).toBe('5001');
+    process.env.TEST_PRESET_ENV_VAR = 'from-shell';
+
+    try {
+      process.chdir(tempDir);
+      loadEnvFiles();
+      expect(process.env.TEST_CUSTOM_LOAD_ENV_VAR).toBe('from-file');
+      expect(process.env.TEST_PRESET_ENV_VAR).toBe('from-shell');
+    } finally {
+      process.chdir(originalCwd);
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   it('should validate reranker environment defaults and custom overrides', () => {
     const defaults = envSchema.parse({});
     expect(defaults.RERANKING_ENABLED).toBe(false);
-    expect(defaults.RERANKER_BASE_URL).toBe('http://localhost:11434');
-    expect(defaults.RERANKER_ENDPOINT_PATH).toBe('/api/generate');
-    expect(defaults.RERANKER_MODEL_NAME).toBe('qwen3-reranker');
+    expect(defaults.RERANKER_PROVIDER_TYPE).toBe('tei');
+    expect(defaults.RERANKER_BASE_URL).toBe('http://localhost:8081');
+    expect(defaults.RERANKER_ENDPOINT_PATH).toBe('/rerank');
+    expect(defaults.RERANKER_MODEL_NAME).toBe('cross-encoder/ms-marco-MiniLM-L-6-v2');
     expect(defaults.RERANKER_TIMEOUT_MS).toBe(15000);
     expect(defaults.RERANKER_CANDIDATES_TOP_K).toBe(30);
     expect(defaults.RERANKER_FINAL_TOP_K).toBe(5);

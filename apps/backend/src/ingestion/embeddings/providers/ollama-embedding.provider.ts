@@ -24,6 +24,7 @@ export class OllamaEmbeddingProvider implements IEmbeddingProvider {
   private readonly dimensions: number;
   private readonly circuitBreaker: CircuitBreaker;
   private readonly retryPolicy: RetryPolicy;
+  private readonly timeoutMs: number;
 
   constructor(
     private readonly appConfig: AppConfigService,
@@ -43,6 +44,8 @@ export class OllamaEmbeddingProvider implements IEmbeddingProvider {
       options?.dimensions ||
       this.appConfig.embeddingDimensions ||
       768;
+
+    this.timeoutMs = this.appConfig.ollamaTimeoutMs || 120000;
 
     this.circuitBreaker =
       options?.circuitBreaker ||
@@ -95,8 +98,19 @@ export class OllamaEmbeddingProvider implements IEmbeddingProvider {
     }
 
     return this.circuitBreaker.execute(async () =>
-      this.retryPolicy.execute(async () => this.callOllamaApi(request.texts, options?.signal)),
+      this.retryPolicy.execute(async () =>
+        /* Fresh timeout per attempt so a hung Ollama call cannot block the worker loop */
+        this.callOllamaApi(request.texts, this.withTimeout(options?.signal)),
+      ),
     );
+  }
+
+  /**
+   * Combines the caller's signal (if any) with OLLAMA_TIMEOUT_MS.
+   */
+  private withTimeout(signal?: AbortSignal): AbortSignal {
+    const timeout = AbortSignal.timeout(this.timeoutMs);
+    return signal ? AbortSignal.any([signal, timeout]) : timeout;
   }
 
   /**

@@ -1,6 +1,19 @@
 import { AxiosInstance } from 'axios';
 import { SendMessageRequest, SendMessageResponse, CitationMetadata } from './types';
 
+/** Pulls Nest's `{ message }` out of an error response, falling back to the status text. */
+async function readErrorMessage(response: Response): Promise<string> {
+  const text = await response.text();
+  try {
+    const body = JSON.parse(text) as { message?: string | string[] };
+    if (Array.isArray(body.message)) return body.message.join(', ');
+    if (body.message) return body.message;
+  } catch {
+    /* Not JSON */
+  }
+  return text || `Request failed (${response.status} ${response.statusText})`;
+}
+
 export class ChatApi {
   constructor(
     private readonly http: AxiosInstance,
@@ -43,8 +56,7 @@ export class ChatApi {
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Chat API error (${response.status}): ${errorText || response.statusText}`);
+      throw new Error(await readErrorMessage(response));
     }
 
     if (!response.body) {
@@ -59,6 +71,7 @@ export class ChatApi {
     let citations: CitationMetadata[] = [];
     let insufficientEvidence = false;
     let messageId = `msg-${Date.now()}`;
+    let streamError: string | undefined;
 
     try {
       while (true) {
@@ -77,12 +90,18 @@ export class ChatApi {
 
             try {
               const eventPayload = JSON.parse(jsonStr);
+              /* The server ends a failed stream with { error, isComplete: true } */
+              if (typeof eventPayload.error === 'string') {
+                streamError = eventPayload.error;
+              }
+              /* Report the id before the first token so the caller can create its thread first */
+              if (eventPayload.conversationId && eventPayload.conversationId !== finalConversationId) {
+                finalConversationId = eventPayload.conversationId;
+                request.onConversationId?.(finalConversationId);
+              }
               if (eventPayload.token) {
                 accumulatedText += eventPayload.token;
                 request.onToken?.(eventPayload.token);
-              }
-              if (eventPayload.conversationId) {
-                finalConversationId = eventPayload.conversationId;
               }
               if (eventPayload.citations) {
                 citations = eventPayload.citations;
@@ -102,6 +121,10 @@ export class ChatApi {
       }
     } finally {
       reader.releaseLock();
+    }
+
+    if (streamError) {
+      throw new Error(streamError);
     }
 
     return {

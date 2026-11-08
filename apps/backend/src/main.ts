@@ -1,10 +1,14 @@
+/* Must stay first: sets WORKER_ENABLED=false before config is loaded */
+import './process-role/api';
 import { sdk } from './instrumentation';
 sdk.start();
 
 import { NestFactory } from '@nestjs/core';
 import { Logger, ValidationPipe, VersioningType } from '@nestjs/common';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { AppConfigService } from './config/app-config.service';
+import { registerGracefulShutdown } from './common/shutdown';
 
 /* Safety net: log a stray rejection instead of letting one request take the process down */
 process.on('unhandledRejection', (reason: unknown) => {
@@ -23,7 +27,8 @@ async function bootstrap() {
     origin: config.corsOrigin,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true,
+    /* No cookie-based auth exists, so the browser must not send credentials cross-origin */
+    credentials: false,
   });
 
   app.setGlobalPrefix('api', {
@@ -46,8 +51,22 @@ async function bootstrap() {
     }),
   );
 
+  /* API docs outside production only: /api/docs */
+  if (!config.isProduction) {
+    const document = SwaggerModule.createDocument(
+      app,
+      new DocumentBuilder()
+        .setTitle('Knowledge Engine API')
+        .setVersion(config.otelServiceVersion)
+        .build(),
+    );
+    SwaggerModule.setup('api/docs', app, document);
+  }
+
+  registerGracefulShutdown(app, 'ApiMain');
+
   await app.listen(config.port, '0.0.0.0');
-  console.log(`Backend running on http://localhost:${config.port}/api`);
+  new Logger('ApiMain').log(`Backend running on http://localhost:${config.port}/api`);
 }
 
 bootstrap();

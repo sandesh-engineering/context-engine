@@ -6,6 +6,7 @@ import { Button } from "@repo/ui/components/button";
 import { Progress } from "@repo/ui/components/progress";
 import { Alert, AlertDescription, AlertTitle } from "@repo/ui/components/alert";
 import { CheckCircle2Icon, AlertCircleIcon, Loader2Icon, ArrowUpIcon } from "lucide-react";
+import { getApiErrorMessage } from "@repo/api";
 import { api } from "../../lib/api-client";
 
 export interface PdfUploadFormProps {
@@ -58,10 +59,9 @@ export function PdfUploadForm({ onSuccess }: PdfUploadFormProps) {
     } catch (err: unknown) {
       console.error("Upload failed:", err);
       setStatus("error");
+      /* Shows the backend's reason, e.g. "Only valid PDF documents are allowed" */
       setErrorMessage(
-        err instanceof Error
-          ? err.message
-          : "Failed to upload document. Please verify network and backend service."
+        getApiErrorMessage(err, "Failed to upload document. Please verify network and backend service.")
       );
     }
   };

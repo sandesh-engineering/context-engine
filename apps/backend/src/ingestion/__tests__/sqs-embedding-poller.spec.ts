@@ -45,7 +45,6 @@ describe('SqsEmbeddingPollerService Unit Tests', () => {
     mockConfigService = {
       get: jest.fn().mockImplementation((key: string) => {
         if (key === 'AWS_REGION') return 'us-east-1';
-        if (key === 'EMBEDDING_WORKER_ENABLED') return 'false';
         return undefined;
       }),
     };
@@ -151,5 +150,10 @@ describe('SqsEmbeddingPollerService Unit Tests', () => {
     await expect(pollerService.processEmbeddingMessage(sqsMessage)).rejects.toThrow('Ollama service down');
 
     expect(mockSqsClient.send).not.toHaveBeenCalledWith(expect.any(DeleteMessageCommand));
+    /* The job shows FAILED while SQS retries the message */
+    expect(mockJobsRepository.markJobFailed).toHaveBeenCalledWith(
+      'job-err',
+      'Embedding failed: Ollama service down',
+    );
   });
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import type { IngestionJob, IngestionStatus } from "@repo/api";
+import type { IngestionJob } from "@repo/api";
 import { Badge } from "@repo/ui/components/badge";
 import { Button } from "@repo/ui/components/button";
 import { Skeleton } from "@repo/ui/components/skeleton";
@@ -14,16 +14,13 @@ import {
   EmptyTitle,
 } from "@repo/ui/components/empty";
 import {
-  BanIcon,
   CheckCircle2Icon,
   ClockIcon,
   FileTextIcon,
   GlobeIcon,
   Loader2Icon,
   RefreshCwIcon,
-  RotateCcwIcon,
   XCircleIcon,
-  XIcon,
 } from "lucide-react";
 import { api } from "../../lib/api-client";
 import { cn } from "@repo/ui/lib/utils";
@@ -49,7 +46,6 @@ export function RecentIngestionsTable({
   const [jobs, setJobs] = React.useState<IngestionJob[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
   const [activeTab, setActiveTab] = React.useState<StatusTab>("all");
-  const [actionInProgress, setActionInProgress] = React.useState<string | null>(null);
 
   const fetchJobs = React.useCallback(async () => {
     try {
@@ -71,42 +67,10 @@ export function RecentIngestionsTable({
     fetchJobs();
   }, [fetchJobs, refreshKey]);
 
-  const handleCancelJob = async (jobId: string) => {
-    try {
-      setActionInProgress(jobId);
-      await api.documents.cancelJob(jobId);
-      setJobs((prev) =>
-        prev.map((j) =>
-          j.id === jobId ? { ...j, status: "CANCELLED" as IngestionStatus } : j
-        )
-      );
-    } catch (err: unknown) {
-      console.error("Failed to cancel job:", err);
-    } finally {
-      setActionInProgress(null);
-    }
-  };
-
-  const handleRetryJob = async (jobId: string) => {
-    try {
-      setActionInProgress(jobId);
-      await api.documents.retryJob(jobId);
-      setJobs((prev) =>
-        prev.map((j) =>
-          j.id === jobId ? { ...j, status: "PENDING" as IngestionStatus } : j
-        )
-      );
-    } catch (err: unknown) {
-      console.error("Failed to retry job:", err);
-    } finally {
-      setActionInProgress(null);
-    }
-  };
-
-  const getStatusBadge = (status: string) => {
+  /* Statuses come from the backend's IngestionJobStatus: PENDING | PROCESSING | COMPLETED | FAILED */
+  const getStatusBadge = (status: string, errorMessage?: string) => {
     const s = status.toUpperCase();
     switch (s) {
-      case "AVAILABLE":
       case "COMPLETED":
         return (
           <Badge variant="success">
@@ -115,23 +79,16 @@ export function RecentIngestionsTable({
           </Badge>
         );
       case "PROCESSING":
-      case "RUNNING":
         return (
           <Badge variant="info">
             <Loader2Icon className="animate-spin" />
             Processing
           </Badge>
         );
-      case "CANCELLED":
-        return (
-          <Badge variant="muted">
-            <BanIcon />
-            Cancelled
-          </Badge>
-        );
       case "FAILED":
         return (
-          <Badge variant="destructive">
+          /* Failed jobs are retried automatically by the queue; the reason shows on hover */
+          <Badge variant="destructive" title={errorMessage}>
             <XCircleIcon />
             Failed
           </Badge>
@@ -152,13 +109,13 @@ export function RecentIngestionsTable({
     return jobs.filter((job) => {
       const s = (job.status || "PENDING").toUpperCase();
       if (activeTab === "active") {
-        return s === "PENDING" || s === "PROCESSING" || s === "RUNNING";
+        return s === "PENDING" || s === "PROCESSING";
       }
       if (activeTab === "completed") {
-        return s === "AVAILABLE" || s === "COMPLETED";
+        return s === "COMPLETED";
       }
       if (activeTab === "failed") {
-        return s === "FAILED" || s === "CANCELLED";
+        return s === "FAILED";
       }
       return true;
     });
@@ -255,17 +212,10 @@ export function RecentIngestionsTable({
                   <th scope="col" className="hidden h-9 px-4 font-medium sm:table-cell">
                     Added
                   </th>
-                  <th scope="col" className="h-9 px-4 text-right font-medium">
-                    <span className="sr-only">Actions</span>
-                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {filteredJobs.map((job) => {
-                  const s = (job.status || "PENDING").toUpperCase();
-                  const isCancelable = s === "PENDING" || s === "PROCESSING" || s === "RUNNING";
-                  const isResumable = s === "FAILED" || s === "CANCELLED";
-                  const isOperating = actionInProgress === job.id;
                   const name = job.filename || job.url || job.title || "Untitled";
                   const SourceIcon = job.sourceType === "URL" ? GlobeIcon : FileTextIcon;
 
@@ -286,47 +236,13 @@ export function RecentIngestionsTable({
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap">{getStatusBadge(job.status)}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">{getStatusBadge(job.status, job.errorMessage)}</td>
                       <td className="hidden px-4 py-3 whitespace-nowrap text-muted-foreground tabular-nums sm:table-cell">
                         {new Date(job.createdAt).toLocaleDateString(undefined, {
                           month: "short",
                           day: "numeric",
                           year: "numeric",
                         })}
-                      </td>
-                      <td className="px-4 py-3 text-right whitespace-nowrap">
-                        {isCancelable && (
-                          <Button
-                            size="xs"
-                            variant="ghost"
-                            onClick={() => handleCancelJob(job.id)}
-                            disabled={isOperating}
-                            className="text-muted-foreground hover:text-destructive"
-                          >
-                            {isOperating ? (
-                              <Loader2Icon data-icon="inline-start" className="animate-spin" />
-                            ) : (
-                              <XIcon data-icon="inline-start" />
-                            )}
-                            Cancel
-                          </Button>
-                        )}
-
-                        {isResumable && (
-                          <Button
-                            size="xs"
-                            variant="outline"
-                            onClick={() => handleRetryJob(job.id)}
-                            disabled={isOperating}
-                          >
-                            {isOperating ? (
-                              <Loader2Icon data-icon="inline-start" className="animate-spin" />
-                            ) : (
-                              <RotateCcwIcon data-icon="inline-start" />
-                            )}
-                            Resume
-                          </Button>
-                        )}
                       </td>
                     </tr>
                   );

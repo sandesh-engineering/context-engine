@@ -107,8 +107,13 @@ export class AppConfigService {
   }
 
   /* Workers & SQS Polling */
+  /**
+   * True only in the worker process: main-worker.ts sets WORKER_ENABLED=true and main.ts sets it
+   * to false before any module loads (see src/process-role/), so a shared env file cannot turn
+   * queue consumers or outbox pollers on inside the API.
+   */
   get workerEnabled(): boolean {
-    return this.config.get('WORKER_ENABLED', { infer: true }) ?? true;
+    return this.config.get('WORKER_ENABLED', { infer: true }) ?? false;
   }
 
   get embeddingWorkerEnabled(): boolean {
@@ -165,7 +170,11 @@ export class AppConfigService {
   }
 
   get outboxBatchSize(): number {
-    return this.config.get('OUTBOX_BATCH_SIZE', { infer: true }) ?? 100;
+    return this.config.get('OUTBOX_BATCH_SIZE', { infer: true }) ?? 10;
+  }
+
+  get outboxPollerEnabled(): boolean {
+    return this.config.get('OUTBOX_POLLER_ENABLED', { infer: true }) ?? true;
   }
 
   get outboxMaxRetries(): number {
@@ -195,7 +204,23 @@ export class AppConfigService {
   }
 
   get ollamaModel(): string {
-    return this.config.get('OLLAMA_MODEL', { infer: true }) ?? 'qwen3:4b';
+    return this.config.get('OLLAMA_MODEL', { infer: true }) ?? 'gemma:2b';
+  }
+
+  get ollamaTimeoutMs(): number {
+    return this.config.get('OLLAMA_TIMEOUT_MS', { infer: true }) ?? 120000;
+  }
+
+  get embeddingProviderType(): Env['EMBEDDING_PROVIDER'] {
+    return this.config.get('EMBEDDING_PROVIDER', { infer: true }) ?? 'ollama';
+  }
+
+  get llmProviderType(): Env['LLM_PROVIDER'] {
+    return this.config.get('LLM_PROVIDER', { infer: true }) ?? 'ollama';
+  }
+
+  get metricsToken(): string | undefined {
+    return this.config.get('METRICS_TOKEN', { infer: true });
   }
 
   get systemPrompt(): string {

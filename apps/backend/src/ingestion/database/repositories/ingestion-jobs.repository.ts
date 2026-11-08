@@ -7,6 +7,13 @@ import { IngestionJobStage, IngestionJobStatus } from '../../common/enums';
 /**
  * Result structure returned by atomic job claim operation.
  */
+/* Stages the ingestion worker owns; later stages belong to the embedding worker */
+const CLAIMABLE_STAGES = [
+  IngestionJobStage.SOURCE_READY,
+  IngestionJobStage.PARSING,
+  IngestionJobStage.CHUNKING,
+];
+
 export interface ClaimJobResult {
   /* Indicates whether atomic stage transition succeeded */
   claimed: boolean;
@@ -26,38 +33,46 @@ export class IngestionJobsRepository {
   }
 
   /**
-   * Atomically claims an ingestion job for processing by updating stage from AVAILABLE to PARSING.
+   * Atomically claims an ingestion job for (re)processing.
    *
    * @remarks
-   * - Restricts stage transition exclusively to records where `stage = 'AVAILABLE'` to enforce pipeline stage requirements.
-   * - Employs atomic SQL `UPDATE ... WHERE id = :jobId AND stage = 'AVAILABLE'` to guarantee exactly-once execution across distributed workers.
-   * - Uses database-native `CURRENT_TIMESTAMP` for `updated_at` to prevent application-to-database clock drift.
+   * A job can be claimed when it is in a parse/chunk stage and either:
+   * - has not started yet (`PENDING`),
+   * - failed earlier (`FAILED`) and its SQS message was redelivered for a retry, or
+   * - is `PROCESSING` but has not been touched for `staleAfterSeconds` (its worker crashed).
    *
-   * @param {string} jobId - Primary key identifier of target ingestion job
-   * @returns {Promise<ClaimJobResult>} Object containing `claimed` boolean status and fetched job entity
-   * @throws {Error} Throws if database update query fails
+   * Fresh jobs move from `SOURCE_READY` to `PARSING`; resumed jobs keep their checkpoint stage so
+   * finished stages are not repeated. `attempt_count` is incremented on every claim. The single
+   * `UPDATE ... WHERE` makes the claim atomic across workers.
    *
-   * @example
-   * ```ts
-   * const { claimed, job } = await repo.claimJobForProcessing('job-123');
-   * if (!claimed) {
-   *   // Duplicate, not in AVAILABLE stage, or already claimed by another worker instance
-   * }
-   * ```
+   * @param {string} jobId - Primary key of the ingestion job
+   * @param {number} staleAfterSeconds - Age after which a PROCESSING job counts as abandoned
+   * @returns {Promise<ClaimJobResult>} Whether the claim succeeded, plus the job's current state
    */
-  async claimJobForProcessing(jobId: string): Promise<ClaimJobResult> {
+  async claimJobForProcessing(jobId: string, staleAfterSeconds: number): Promise<ClaimJobResult> {
     const result = await this.repository
       .createQueryBuilder()
       .update(IngestionJobEntity)
       .set({
-        stage: IngestionJobStage.PARSING,
+        stage: () =>
+          `CASE WHEN "stage" = 'SOURCE_READY' THEN 'PARSING'::"public"."ingestion_jobs_stage_enum" ELSE "stage" END`,
         status: IngestionJobStatus.PROCESSING,
+        attemptCount: () => '"attempt_count" + 1',
+        errorMessage: () => 'NULL',
         updatedAt: () => 'CURRENT_TIMESTAMP',
       })
-      .where('id = :jobId AND stage = :stage', {
-        jobId,
-        stage: IngestionJobStage.SOURCE_READY,
+      .where('id = :jobId', { jobId })
+      .andWhere('stage IN (:...claimableStages)', {
+        claimableStages: CLAIMABLE_STAGES,
       })
+      .andWhere(
+        `(status IN (:...idleStatuses) OR (status = :processing AND updated_at < CURRENT_TIMESTAMP - make_interval(secs => :staleAfterSeconds)))`,
+        {
+          idleStatuses: [IngestionJobStatus.PENDING, IngestionJobStatus.FAILED],
+          processing: IngestionJobStatus.PROCESSING,
+          staleAfterSeconds,
+        },
+      )
       .execute();
 
     const job = await this.repository.findOne({
@@ -65,11 +80,24 @@ export class IngestionJobsRepository {
       relations: ['version'],
     });
 
-    if (result.affected && result.affected > 0) {
-      return { claimed: true, job };
-    }
+    return { claimed: Boolean(result.affected && result.affected > 0), job };
+  }
 
-    return { claimed: false, job };
+  /**
+   * Refreshes `updated_at` so a long-running job is not treated as abandoned.
+   *
+   * @param {string} jobId - Primary key of the ingestion job
+   */
+  async touchJob(jobId: string): Promise<void> {
+    await this.repository
+      .createQueryBuilder()
+      .update(IngestionJobEntity)
+      .set({ updatedAt: () => 'CURRENT_TIMESTAMP' })
+      .where('id = :jobId AND status = :processing', {
+        jobId,
+        processing: IngestionJobStatus.PROCESSING,
+      })
+      .execute();
   }
 
   /**
@@ -125,6 +153,8 @@ export class IngestionJobsRepository {
       .set({
         status: IngestionJobStatus.COMPLETED,
         stage: IngestionJobStage.INDEXING,
+        /* A retry that succeeds clears the error left by an earlier attempt */
+        errorMessage: () => 'NULL',
         updatedAt: () => 'CURRENT_TIMESTAMP',
       })
       .where('id = :jobId', { jobId })
@@ -193,6 +223,26 @@ export class IngestionJobsRepository {
       .orderBy('job.createdAt', 'DESC')
       .take(limit)
       .getMany();
+  }
+
+  /**
+   * Finds the newest job (with version and document) for content with this SHA-256, ignoring failed jobs.
+   *
+   * @remarks
+   * Used to make re-uploading identical bytes return the existing document instead of indexing a duplicate.
+   *
+   * @param {string} sha256Digest - Hex SHA-256 of the uploaded bytes
+   * @returns {Promise<IngestionJobEntity | null>} The reusable job, or null when none exists
+   */
+  async findReusableJobByDigest(sha256Digest: string): Promise<IngestionJobEntity | null> {
+    return this.repository
+      .createQueryBuilder('job')
+      .innerJoinAndSelect('job.version', 'version')
+      .innerJoinAndSelect('version.document', 'document')
+      .where('version.sha256Digest = :sha256Digest', { sha256Digest })
+      .andWhere('job.status != :failed', { failed: IngestionJobStatus.FAILED })
+      .orderBy('job.createdAt', 'DESC')
+      .getOne();
   }
 
   /**

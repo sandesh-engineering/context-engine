@@ -7,7 +7,7 @@ import {
   MessageEvent,
 } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
-import { Observable, Subject } from 'rxjs';
+import { Observable, ReplaySubject, Subject } from 'rxjs';
 import { ConversationEntity } from '../entities/conversation.entity';
 import { MessageEntity, MessageRole } from '../entities/message.entity';
 import { GetConversationsDto, PaginatedConversationsResponse } from '../dto';
@@ -170,11 +170,6 @@ export class ChatService {
     }
   }
 
-  private isUuid(id?: string): boolean {
-    if (!id) return false;
-    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
-  }
-
   /**
    * Retrieves all sequential message turns for a conversation session.
    */
@@ -241,7 +236,8 @@ export class ChatService {
     });
     await this.messageRepository.save(userMessage);
 
-    const subject = new Subject<MessageEvent>();
+    /* Replay: processing starts before Nest subscribes, and early events must not be lost */
+    const subject = new ReplaySubject<MessageEvent>();
 
     /* Execute retrieval and streaming asynchronously inside root trace span */
     AppTracer.traceSpan(

@@ -23,6 +23,8 @@ describe('Validation Pipeline Tests', () => {
     service = new IngestionService(
       memoryStorage,
       mockPersistence,
+      /* IngestionJobsRepository: no earlier upload with the same bytes */
+      { findReusableJobByDigest: jest.fn().mockResolvedValue(null) } as any,
       new StoragePathBuilder(),
       mockConfig,
     );

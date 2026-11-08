@@ -10,48 +10,48 @@ All system requirements, architectural patterns, domain specs, infrastructure gu
 
 > **CRITICAL RULE**: Before writing or modifying code in a subsystem, read the corresponding documentation file in `docs/` first!
 
-- **Authority Hierarchy & Vault Index**: [docs/README.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/README.md)
+- **Authority Hierarchy & Vault Index**: [docs/README.md](docs/README.md)
   - *Hierarchy*: Current Code $\rightarrow$ Accepted ADRs $\rightarrow$ Architecture $\rightarrow$ Domain Specs $\rightarrow$ Product Requirements $\rightarrow$ Roadmap.
   - *Discrepancy Rule*: If code and documentation disagree, do not silently change either. Identify and document the discrepancy first.
 
 ### Navigation Index for `docs/`
 
 #### Product
-- **Vision & Scope**: [docs/product/context.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/product/context.md)
-- **Functional (`FR-xxx`) & Non-Functional (`NFR-xxx`) Requirements**: [docs/product/requirements.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/product/requirements.md)
-- **Roadmap & Phase Status**: [docs/product/roadmap.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/product/roadmap.md)
+- **Vision & Scope**: [docs/product/context.md](docs/product/context.md)
+- **Functional (`FR-xxx`) & Non-Functional (`NFR-xxx`) Requirements**: [docs/product/requirements.md](docs/product/requirements.md)
+- **Roadmap & Phase Status**: [docs/product/roadmap.md](docs/product/roadmap.md)
 
 #### Architecture
-- **System Overview & Context**: [docs/architecture/overview.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/architecture/overview.md)
-- **Asynchronous Ingestion Pipeline**: [docs/architecture/ingestion.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/architecture/ingestion.md)
-- **Retrieval & Grounding Strategy**: [docs/architecture/retrieval.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/architecture/retrieval.md)
-- **Chat Engine & Streaming**: [docs/architecture/chat.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/architecture/chat.md)
-- **Reliability & Resiliency Principles**: [docs/architecture/reliability.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/architecture/reliability.md)
+- **System Overview & Context**: [docs/architecture/overview.md](docs/architecture/overview.md)
+- **Asynchronous Ingestion Pipeline**: [docs/architecture/ingestion.md](docs/architecture/ingestion.md)
+- **Retrieval & Grounding Strategy**: [docs/architecture/retrieval.md](docs/architecture/retrieval.md)
+- **Chat Engine & Streaming**: [docs/architecture/chat.md](docs/architecture/chat.md)
+- **Reliability & Resiliency Principles**: [docs/architecture/reliability.md](docs/architecture/reliability.md)
 
 #### Domain Models
-- **Documents & DocumentVersions**: [docs/domain/documents.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/domain/documents.md)
-- **IngestionJobs State Machine**: [docs/domain/ingestion-jobs.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/domain/ingestion-jobs.md)
-- **Structure-Aware Chunking**: [docs/domain/chunking.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/domain/chunking.md)
-- **Vector Embedding Rules**: [docs/domain/embeddings.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/domain/embeddings.md)
-- **Conversations & Citations**: [docs/domain/conversations.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/domain/conversations.md)
+- **Documents & DocumentVersions**: [docs/domain/documents.md](docs/domain/documents.md)
+- **IngestionJobs State Machine**: [docs/domain/ingestion-jobs.md](docs/domain/ingestion-jobs.md)
+- **Structure-Aware Chunking**: [docs/domain/chunking.md](docs/domain/chunking.md)
+- **Vector Embedding Rules**: [docs/domain/embeddings.md](docs/domain/embeddings.md)
+- **Conversations & Citations**: [docs/domain/conversations.md](docs/domain/conversations.md)
 
 #### Infrastructure
-- **AWS Service Roles**: [docs/infrastructure/aws.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/infrastructure/aws.md)
-- **PostgreSQL & `pgvector` Schema**: [docs/infrastructure/database.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/infrastructure/database.md)
-- **SQS & Transactional Outbox**: [docs/infrastructure/messaging.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/infrastructure/messaging.md)
+- **AWS Service Roles**: [docs/infrastructure/aws.md](docs/infrastructure/aws.md)
+- **PostgreSQL & `pgvector` Schema**: [docs/infrastructure/database.md](docs/infrastructure/database.md)
+- **SQS & Transactional Outbox**: [docs/infrastructure/messaging.md](docs/infrastructure/messaging.md)
 
 #### Decisions (ADRs)
-- **ADR-001**: PostgreSQL + `pgvector` Store ([docs/decisions/ADR-001-postgresql-pgvector.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/decisions/ADR-001-postgresql-pgvector.md))
-- **ADR-002**: AWS SQS Work Queue vs. Kinesis ([docs/decisions/ADR-002-sqs-over-kinesis.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/decisions/ADR-002-sqs-over-kinesis.md))
-- **ADR-003**: Transactional Outbox Pattern ([docs/decisions/ADR-003-transactional-outbox.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/decisions/ADR-003-transactional-outbox.md))
-- **ADR-004**: Self-Hosted Embedding Strategy ([docs/decisions/ADR-004-self-hosted-embeddings.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/decisions/ADR-004-self-hosted-embeddings.md))
-- **ADR-005**: Local/Free LLM Abstraction Boundary ([docs/decisions/ADR-005-local-llm.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/decisions/ADR-005-local-llm.md))
-- **ADR-006**: External Object Streaming Ingestion ([docs/decisions/ADR-006-external-object-streaming-ingestion.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/decisions/ADR-006-external-object-streaming-ingestion.md))
+- **ADR-001**: PostgreSQL + `pgvector` Store ([docs/decisions/ADR-001-postgresql-pgvector.md](docs/decisions/ADR-001-postgresql-pgvector.md))
+- **ADR-002**: AWS SQS Work Queue vs. Kinesis ([docs/decisions/ADR-002-sqs-over-kinesis.md](docs/decisions/ADR-002-sqs-over-kinesis.md))
+- **ADR-003**: Transactional Outbox Pattern ([docs/decisions/ADR-003-transactional-outbox.md](docs/decisions/ADR-003-transactional-outbox.md))
+- **ADR-004**: Self-Hosted Embedding Strategy ([docs/decisions/ADR-004-self-hosted-embeddings.md](docs/decisions/ADR-004-self-hosted-embeddings.md))
+- **ADR-005**: Local/Free LLM Abstraction Boundary ([docs/decisions/ADR-005-local-llm.md](docs/decisions/ADR-005-local-llm.md))
+- **ADR-006**: External Object Streaming Ingestion ([docs/decisions/ADR-006-external-object-streaming-ingestion.md](docs/decisions/ADR-006-external-object-streaming-ingestion.md))
 
 #### Development Standards
-- **Implementation Progress**: [docs/development/implementation-plan.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/development/implementation-plan.md)
-- **Coding Conventions & Rules**: [docs/development/coding-conventions.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/development/coding-conventions.md)
-- **Testing Strategy**: [docs/development/testing-strategy.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/docs/development/testing-strategy.md)
+- **Implementation Progress**: [docs/development/implementation-plan.md](docs/development/implementation-plan.md)
+- **Coding Conventions & Rules**: [docs/development/coding-conventions.md](docs/development/coding-conventions.md)
+- **Testing Strategy**: [docs/development/testing-strategy.md](docs/development/testing-strategy.md)
 
 ---
 
@@ -59,11 +59,11 @@ All system requirements, architectural patterns, domain specs, infrastructure gu
 
 Always read the relevant `SKILL.md` instructions before writing, reviewing, or refactoring code:
 
-- **NestJS Best Practices**: [nestjs-best-practices/SKILL.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/.agents/skills/nestjs-best-practices/SKILL.md)
+- **NestJS Best Practices**: [nestjs-best-practices/SKILL.md](.agents/skills/nestjs-best-practices/SKILL.md)
   - *Usage*: Use when writing controllers, modules, dependency injection, validation pipes, or error handling in `apps/backend/`.
-- **Next.js App Router Patterns**: [nextjs-app-router-patterns/SKILL.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/.agents/skills/nextjs-app-router-patterns/SKILL.md)
+- **Next.js App Router Patterns**: [nextjs-app-router-patterns/SKILL.md](.agents/skills/nextjs-app-router-patterns/SKILL.md)
   - *Usage*: Use when building Next.js 14+ frontend pages, layouts, Server Components, or streaming UI in `apps/web/`.
-- **Test-Driven Development**: [tdd/SKILL.md](file:///c:/Users/Admin/Desktop/Coding/knowledge-engine/.agents/skills/tdd/SKILL.md)
+- **Test-Driven Development**: [tdd/SKILL.md](.agents/skills/tdd/SKILL.md)
   - *Usage*: Use when writing tests first, red-green-refactor flows, or integration tests.
 
 ---
@@ -71,7 +71,7 @@ Always read the relevant `SKILL.md` instructions before writing, reviewing, or r
 ## 📁 3. Workspace Layout
 
 ```text
-c:\Users\Admin\Desktop\Coding\knowledge-engine\
+knowledge-engine/
 ├── AI_CONTEXT.md              # Entry-point repository guide for AI agents
 ├── docs/                      # Production documentation vault (Obsidian + Markdown)
 ├── .agents/skills/            # Agent skills & architecture pattern guides
