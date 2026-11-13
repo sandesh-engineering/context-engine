@@ -13,6 +13,7 @@ Upload your internal PDFs once, then ask questions in plain language and get ans
   - [What the system does](#what-the-system-does)
 - [Goals and Non-Goals](#goals-and-non-goals)
 - [Breaking Points](#breaking-points)
+- [Work in Progress](#work-in-progress)
 - [Future Improvements](#future-improvements)
 - [Technical Decisions](#technical-decisions)
   - [One database for data and vectors](#1-one-database-for-data-and-vectors)
@@ -85,7 +86,7 @@ The question is embedded and matched against the chunks. If nothing is relevant,
 - **Say "I don't know":** If no chunk is similar enough, the system replies that the docs don't cover the question.
 - **Replace or delete:** Each document can get a new version or be deleted from the upload page. A new version takes over once it is fully indexed, and the old one answers until then. Older versions stay stored but no longer answer. If an upload has the same file name as an existing document, the app asks whether it is a new version.
 - **Remember:** Conversations and messages are saved, so users can come back and ask follow-up questions. Only the most recent turns are sent back to the model.
-- **Observe:** OpenTelemetry traces follow a document across the API, the outbox, both queues and the worker. Logs are structured JSON, and Prometheus metrics are served on `/metrics` (bearer-protected when `METRICS_TOKEN` is set).
+- **Observe:** OpenTelemetry tracing, viewed in Jaeger, follows a document across the API, the outbox, both queues and the worker. Logs are structured JSON, and the API serves Prometheus metrics on `/metrics` (bearer-protected when `METRICS_TOKEN` is set).
 
 ## Goals and Non-Goals
 
@@ -119,6 +120,15 @@ The question is embedded and matched against the chunks. If nothing is relevant,
 - **Local model quality depends on hardware.** Small local models answer worse than large hosted ones, and they need enough RAM or a GPU.
 - **Versions depend on the user.** The app never decides on its own that a file replaces another. An edited file uploaded as a separate document makes old and new text both appear in answers. Deleting a document breaks its citations in earlier chats.
 - **Single server.** Production runs with Docker Compose on one EC2 machine. If that machine goes down, everything is down, and each deploy causes a short outage.
+
+## Work in Progress
+
+Infrastructure work that lands incrementally, in small steps rather than one large change.
+
+- **AWS resource hardening:** a private database with no public access, security groups that allow only the traffic each service needs, encryption at rest, backups and deletion protection, and credentials kept in AWS Secrets Manager.
+- **Terraform hardening:** separate settings for the local emulator (Floci/LocalStack) and real AWS, remote state in S3 with locking, no hard-coded credentials, and the database and networking (subnets in two availability zones) managed in code.
+- **Observability:** Prometheus scraping the API's `/metrics` endpoint, a metrics endpoint for the worker (it runs without an HTTP server today, so its metrics are not exposed), and Grafana dashboards and alerts on top of those metrics.
+- **Rolling and canary deployments:** deploys that replace containers without downtime, followed by rolling updates across several hosts behind a load balancer and canary releases that send a share of traffic to a new version first.
 
 ## Future Improvements
 
