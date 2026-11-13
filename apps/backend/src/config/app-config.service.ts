@@ -237,6 +237,14 @@ export class AppConfigService {
     );
   }
 
+  get chatHistoryMaxMessages(): number {
+    return this.config.get('CHAT_HISTORY_MAX_MESSAGES', { infer: true }) ?? 6;
+  }
+
+  get chatHistoryMaxChars(): number {
+    return this.config.get('CHAT_HISTORY_MAX_CHARS', { infer: true }) ?? 6000;
+  }
+
   get embeddingDimensions(): number {
     return this.config.get('EMBEDDING_DIMENSIONS', { infer: true }) ?? 768;
   }

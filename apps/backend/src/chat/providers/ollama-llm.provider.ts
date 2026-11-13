@@ -61,6 +61,11 @@ export class OllamaLlmProvider implements ILlmProvider {
   /**
    * Streams generative tokens from local Ollama endpoint protected by CircuitBreaker and RetryPolicy.
    *
+   * @remarks
+   * Uses `/api/chat` with the caller's (already bounded) history as explicit messages. The opaque
+   * `context` token array of `/api/generate` is not used: it grows with every turn and carries
+   * every earlier prompt, retrieved chunks included, until it overflows the model's window.
+   *
    * @param {string} prompt - Formatted system prompt with context
    * @param {MessageHistory[]} [history] - Conversation message history turns
    * @param {LlmStreamOptions} [options] - Stream options including AbortSignal
@@ -74,19 +79,19 @@ export class OllamaLlmProvider implements ILlmProvider {
     const signal = options?.signal;
 
     const streamFetcher = async (): Promise<ReadableStream<Uint8Array>> => {
-      const url = `${this.baseUrl.replace(/\/$/, '')}/api/generate`;
+      const url = `${this.baseUrl.replace(/\/$/, '')}/api/chat`;
+      const messages = [
+        ...(history || []).map((turn) => ({ role: turn.role.toLowerCase(), content: turn.content })),
+        { role: 'user', content: prompt },
+      ];
       const bodyPayload: Record<string, unknown> = {
         model: this.modelName,
-        prompt,
+        messages,
         stream: true,
         options: {
           temperature: options?.temperature ?? 0.2,
         },
       };
-
-      if (options?.contextState && options.contextState.length > 0) {
-        bodyPayload.context = options.contextState;
-      }
 
       /* Bound the wait for the response headers (model load + first token); once streaming starts,
          only the client's signal can stop it, so long answers are not cut off */
@@ -164,24 +169,17 @@ export class OllamaLlmProvider implements ILlmProvider {
 
           try {
             const parsed = JSON.parse(trimmed) as {
-              response?: string;
+              message?: { content?: string };
               done?: boolean;
-              context?: number[];
-              session_id?: string;
             };
-            if (parsed.response) {
+            if (parsed.message?.content) {
               yield {
-                token: parsed.response,
+                token: parsed.message.content,
                 isComplete: false,
               };
             }
             if (parsed.done) {
-              yield {
-                token: '',
-                isComplete: true,
-                contextState: parsed.context,
-                providerSessionId: parsed.session_id,
-              };
+              yield { token: '', isComplete: true };
               return;
             }
           } catch {
@@ -193,9 +191,9 @@ export class OllamaLlmProvider implements ILlmProvider {
       /* Process remaining buffer if any */
       if (buffer.trim()) {
         try {
-          const parsed = JSON.parse(buffer.trim()) as { response?: string; done?: boolean };
-          if (parsed.response) {
-            yield { token: parsed.response, isComplete: false };
+          const parsed = JSON.parse(buffer.trim()) as { message?: { content?: string } };
+          if (parsed.message?.content) {
+            yield { token: parsed.message.content, isComplete: false };
           }
         } catch {
           // Ignore trailing invalid JSON

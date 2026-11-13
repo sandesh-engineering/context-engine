@@ -12,6 +12,7 @@ import { MessageEntity, MessageRole } from '../entities/message.entity';
 import { RetrievalService } from '../../retrieval/services/retrieval.service';
 import { RetrievalQueryValidator } from '../../retrieval/services/retrieval-query-validator.service';
 import { LLM_PROVIDER } from '../interfaces/llm-provider.interface';
+import { AppConfigService } from '../../config/app-config.service';
 
 describe('ChatService', () => {
   let service: ChatService;
@@ -68,6 +69,10 @@ describe('ChatService', () => {
         { provide: RetrievalService, useValue: retrievalService },
         { provide: LLM_PROVIDER, useValue: llmProvider },
         RetrievalQueryValidator,
+        {
+          provide: AppConfigService,
+          useValue: { chatHistoryMaxMessages: 6, chatHistoryMaxChars: 6000 },
+        },
       ],
     }).compile();
 
@@ -161,6 +166,44 @@ describe('ChatService', () => {
 
       expect(events.length).toBeGreaterThan(0);
       expect(msgRepo.save).toHaveBeenCalled();
+    });
+
+    it('should send only a bounded tail of prior turns, without the current question', async () => {
+      convRepo.findOne.mockResolvedValue({ id: 'conv-123' });
+      retrievalService.retrieveCandidates.mockResolvedValue({
+        candidates: [{ id: 'c1', content: 'Evidence' }],
+      });
+      /* Repository returns newest first, capped at chatHistoryMaxMessages */
+      msgRepo.find.mockResolvedValue([
+        { role: MessageRole.ASSISTANT, content: 'Answer 2' },
+        { role: MessageRole.USER, content: 'Question 2' },
+        { role: MessageRole.ASSISTANT, content: 'Answer 1' },
+      ]);
+
+      async function* mockStream() {
+        yield { token: 'Done', isComplete: false };
+        yield { token: '', isComplete: true };
+      }
+      llmProvider.generateStream.mockReturnValue(mockStream());
+
+      const observable = await service.sendMessageStream({
+        conversationId: 'conv-123',
+        userQuery: 'Question 3',
+      });
+      await new Promise<void>((resolve) => observable.subscribe({ complete: () => resolve() }));
+
+      expect(msgRepo.find).toHaveBeenCalledWith(
+        expect.objectContaining({ order: { createdAt: 'DESC' }, take: 6 }),
+      );
+      /* Oldest first; the orphaned 'Answer 1' (its question fell outside the window) is dropped */
+      expect(llmProvider.generateStream).toHaveBeenCalledWith(
+        'SYSTEM PROMPT',
+        [
+          { role: MessageRole.USER, content: 'Question 2' },
+          { role: MessageRole.ASSISTANT, content: 'Answer 2' },
+        ],
+        expect.any(Object),
+      );
     });
   });
 

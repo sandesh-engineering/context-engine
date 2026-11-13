@@ -3,7 +3,6 @@ import { IngestionJobsRepository } from '../database/repositories/ingestion-jobs
 import { DocumentChunksRepository } from '../database/repositories/document-chunks.repository';
 import { IEmbeddingProvider } from '../embeddings/interfaces/embedding-provider.interface';
 import { AppConfigService } from '../../config/app-config.service';
-import { IngestionJobStage } from '../common/enums';
 import { DeleteMessageCommand } from '@aws-sdk/client-sqs';
 
 describe('SqsEmbeddingPollerService Unit Tests', () => {
@@ -20,6 +19,7 @@ describe('SqsEmbeddingPollerService Unit Tests', () => {
       updateJobStage: jest.fn(),
       markJobCompleted: jest.fn(),
       markJobFailed: jest.fn(),
+      completeJobAndPromoteVersion: jest.fn(),
     } as unknown as jest.Mocked<IngestionJobsRepository>;
 
     mockChunksRepository = {
@@ -98,8 +98,7 @@ describe('SqsEmbeddingPollerService Unit Tests', () => {
 
     mockChunksRepository.updateBatchEmbeddings.mockResolvedValue();
     mockChunksRepository.countChunkStats.mockResolvedValue({ total: 2, embedded: 2 });
-    mockJobsRepository.updateJobStage.mockResolvedValue();
-    mockJobsRepository.markJobCompleted.mockResolvedValue();
+    mockJobsRepository.completeJobAndPromoteVersion.mockResolvedValue('promoted');
     mockSqsClient.send.mockResolvedValue({});
 
     await pollerService.processEmbeddingMessage(sqsMessage);
@@ -113,8 +112,29 @@ describe('SqsEmbeddingPollerService Unit Tests', () => {
       { chunkId: 'chunk-1', embedding: [0.1, 0.2, 0.3] },
       { chunkId: 'chunk-2', embedding: [0.4, 0.5, 0.6] },
     ]);
-    expect(mockJobsRepository.updateJobStage).toHaveBeenCalledWith('job-uuid-1', IngestionJobStage.INDEXING);
-    expect(mockJobsRepository.markJobCompleted).toHaveBeenCalledWith('job-uuid-1');
+    /* Completing the job is also what makes this version the one that answers questions */
+    expect(mockJobsRepository.completeJobAndPromoteVersion).toHaveBeenCalledWith('job-uuid-1', 'ver-uuid-1');
+    expect(mockSqsClient.send).toHaveBeenCalledWith(expect.any(DeleteMessageCommand));
+  });
+
+  it('should still complete the job when the document was deleted mid-embedding', async () => {
+    const sqsMessage = {
+      Body: JSON.stringify({
+        eventId: 'evt-emb-old',
+        payload: { versionId: 'ver-old', jobId: 'job-old' },
+      }),
+      ReceiptHandle: 'rh-emb-old',
+    };
+
+    mockChunksRepository.fetchUnembeddedChunks.mockResolvedValue([]);
+    mockChunksRepository.countChunkStats.mockResolvedValue({ total: 0, embedded: 0 });
+    mockJobsRepository.completeJobAndPromoteVersion.mockResolvedValue('missing');
+    mockSqsClient.send.mockResolvedValue({});
+
+    await pollerService.processEmbeddingMessage(sqsMessage);
+
+    /* Otherwise the job would sit in EMBEDDING forever */
+    expect(mockJobsRepository.completeJobAndPromoteVersion).toHaveBeenCalledWith('job-old', 'ver-old');
     expect(mockSqsClient.send).toHaveBeenCalledWith(expect.any(DeleteMessageCommand));
   });
 
@@ -155,5 +175,31 @@ describe('SqsEmbeddingPollerService Unit Tests', () => {
       'job-err',
       'Embedding failed: Ollama service down',
     );
+  });
+
+  it('should delete the message when the provider rejects the input as too large', async () => {
+    const sqsMessage = {
+      Body: JSON.stringify({
+        eventId: 'evt-emb-413',
+        payload: { versionId: 'ver-413', jobId: 'job-413' },
+      }),
+      ReceiptHandle: 'rh-413',
+    };
+
+    mockChunksRepository.fetchUnembeddedChunks.mockResolvedValue([
+      { id: 'chunk-413', content: 'Huge chunk' },
+    ] as any);
+    mockSqsClient.send.mockResolvedValue({});
+
+    const tooLarge = Object.assign(new Error('Payload too large'), { statusCode: 413 });
+    mockEmbeddingProvider.generateEmbeddings.mockRejectedValue(tooLarge);
+
+    await expect(pollerService.processEmbeddingMessage(sqsMessage)).resolves.toBeUndefined();
+
+    expect(mockJobsRepository.markJobFailed).toHaveBeenCalledWith(
+      'job-413',
+      'Embedding failed: Payload too large',
+    );
+    expect(mockSqsClient.send).toHaveBeenCalledWith(expect.any(DeleteMessageCommand));
   });
 });

@@ -18,6 +18,7 @@ import { IngestionPipelineExecutor } from '../pipeline/ingestion-pipeline.execut
 import { IngestionJobStage, IngestionJobStatus } from '../common/enums';
 import { AppTracer, SemanticAttributes } from '../../common/telemetry';
 import { StructuredLogger, LogEvents } from '../../common/logger';
+import { ErrorClassifier } from '../resilience/error-classifier';
 
 export interface SqsIngestionPollerOptions {
   sqsClient?: SQSClient;
@@ -304,6 +305,19 @@ export class SqsIngestionPollerService implements OnModuleInit, OnModuleDestroy 
             messageId: sqsMessage.MessageId,
           });
           await this.jobsRepository.markJobFailed(jobId, errorMessage);
+
+          /* A broken document fails the same way on every attempt: drop the message so it neither
+             burns retries nor lands in the DLQ. The FAILED job is the record; re-uploading retries it. */
+          if (ErrorClassifier.isUnrecoverable(error)) {
+            this.logger.warnEvent(LogEvents.QUEUE_MESSAGE_DISCARDED, {
+              jobId,
+              messageId: sqsMessage.MessageId,
+              category: ErrorClassifier.classify(error),
+            });
+            await this.deleteSqsMessage(sqsMessage.ReceiptHandle!);
+            return;
+          }
+
           /* DO NOT delete the message: SQS redelivers it after the visibility timeout (the FAILED job
              is claimable again and resumes from its checkpoint) and moves it to the DLQ once the
              queue's maxReceiveCount is reached. */

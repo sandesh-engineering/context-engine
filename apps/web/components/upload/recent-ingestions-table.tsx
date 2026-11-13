@@ -6,6 +6,15 @@ import { Badge } from "@repo/ui/components/badge";
 import { Button } from "@repo/ui/components/button";
 import { Skeleton } from "@repo/ui/components/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@repo/ui/components/tabs";
+import { Alert, AlertDescription } from "@repo/ui/components/alert";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@repo/ui/components/dialog";
 import {
   Empty,
   EmptyDescription,
@@ -14,14 +23,18 @@ import {
   EmptyTitle,
 } from "@repo/ui/components/empty";
 import {
+  AlertCircleIcon,
   CheckCircle2Icon,
   ClockIcon,
+  FilePlus2Icon,
   FileTextIcon,
   GlobeIcon,
   Loader2Icon,
   RefreshCwIcon,
+  Trash2Icon,
   XCircleIcon,
 } from "lucide-react";
+import { getApiErrorMessage } from "@repo/api";
 import { api } from "../../lib/api-client";
 import { cn } from "@repo/ui/lib/utils";
 
@@ -46,6 +59,12 @@ export function RecentIngestionsTable({
   const [jobs, setJobs] = React.useState<IngestionJob[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
   const [activeTab, setActiveTab] = React.useState<StatusTab>("all");
+  /* Document a new version is being uploaded for, or that is being deleted */
+  const [busyDocumentId, setBusyDocumentId] = React.useState<string | null>(null);
+  const [actionNotice, setActionNotice] = React.useState<{ tone: "success" | "error"; text: string } | null>(null);
+  const [pendingDelete, setPendingDelete] = React.useState<{ documentId: string; name: string } | null>(null);
+  const versionInputRef = React.useRef<HTMLInputElement>(null);
+  const versionTargetRef = React.useRef<string | null>(null);
 
   const fetchJobs = React.useCallback(async () => {
     try {
@@ -67,6 +86,55 @@ export function RecentIngestionsTable({
     fetchJobs();
   }, [fetchJobs, refreshKey]);
 
+  const chooseVersionFile = (documentId: string) => {
+    versionTargetRef.current = documentId;
+    versionInputRef.current?.click();
+  };
+
+  const handleVersionFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    const documentId = versionTargetRef.current;
+    /* Reset so choosing the same file again still fires onChange */
+    event.target.value = "";
+    if (!file || !documentId) return;
+
+    setBusyDocumentId(documentId);
+    setActionNotice(null);
+    try {
+      const res = await api.documents.uploadDocumentVersion(documentId, file);
+      setActionNotice(
+        res.data.duplicate
+          ? { tone: "success", text: "This file is identical to the current version, so there was nothing new to index." }
+          : {
+              tone: "success",
+              text: `Version ${res.data.versionNumber} uploaded. The previous version keeps answering until this one is indexed.`,
+            },
+      );
+      await fetchJobs();
+    } catch (err: unknown) {
+      setActionNotice({ tone: "error", text: getApiErrorMessage(err, "Failed to upload the new version.") });
+    } finally {
+      setBusyDocumentId(null);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    const { documentId, name } = pendingDelete;
+    setPendingDelete(null);
+    setBusyDocumentId(documentId);
+    setActionNotice(null);
+    try {
+      await api.documents.deleteDocument(documentId);
+      setActionNotice({ tone: "success", text: `"${name}" was deleted and no longer appears in answers.` });
+      await fetchJobs();
+    } catch (err: unknown) {
+      setActionNotice({ tone: "error", text: getApiErrorMessage(err, "Failed to delete the document.") });
+    } finally {
+      setBusyDocumentId(null);
+    }
+  };
+
   /* Statuses come from the backend's IngestionJobStatus: PENDING | PROCESSING | COMPLETED | FAILED */
   const getStatusBadge = (status: string, errorMessage?: string) => {
     const s = status.toUpperCase();
@@ -87,7 +155,7 @@ export function RecentIngestionsTable({
         );
       case "FAILED":
         return (
-          /* Failed jobs are retried automatically by the queue; the reason shows on hover */
+          /* Temporary failures are retried by the queue; a broken file fails for good. The reason shows on hover */
           <Badge variant="destructive" title={errorMessage}>
             <XCircleIcon />
             Failed
@@ -168,6 +236,22 @@ export function RecentIngestionsTable({
         </div>
       </div>
 
+      <input
+        ref={versionInputRef}
+        type="file"
+        accept="application/pdf"
+        className="hidden"
+        onChange={handleVersionFile}
+        data-testid="version-file-input"
+      />
+
+      {actionNotice && (
+        <Alert variant={actionNotice.tone === "error" ? "destructive" : "success"} aria-live="polite">
+          {actionNotice.tone === "error" ? <AlertCircleIcon /> : <CheckCircle2Icon />}
+          <AlertDescription>{actionNotice.text}</AlertDescription>
+        </Alert>
+      )}
+
       <div className="overflow-hidden rounded-xl border bg-card shadow-xs">
         {isLoading && jobs.length === 0 ? (
           <div className="flex flex-col divide-y" aria-label="Loading ingestion jobs">
@@ -212,12 +296,18 @@ export function RecentIngestionsTable({
                   <th scope="col" className="hidden h-9 px-4 font-medium sm:table-cell">
                     Added
                   </th>
+                  <th scope="col" className="h-9 px-4 text-right font-medium">
+                    <span className="sr-only">Actions</span>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {filteredJobs.map((job) => {
                   const name = job.filename || job.url || job.title || "Untitled";
                   const SourceIcon = job.sourceType === "URL" ? GlobeIcon : FileTextIcon;
+                  /* Only the row of a document's current version offers actions */
+                  const canAct = Boolean(job.documentId) && job.isCurrent !== false;
+                  const isBusy = busyDocumentId !== null && busyDocumentId === job.documentId;
 
                   return (
                     <tr key={job.id} className="transition-colors hover:bg-muted/30">
@@ -227,8 +317,20 @@ export function RecentIngestionsTable({
                             <SourceIcon className="size-4" />
                           </div>
                           <div className="flex min-w-0 flex-col gap-0.5">
-                            <span className="truncate font-medium text-foreground" title={name}>
-                              {name}
+                            <span className="flex min-w-0 items-center gap-1.5">
+                              <span className="truncate font-medium text-foreground" title={name}>
+                                {name}
+                              </span>
+                              {job.versionNumber !== undefined && job.versionNumber > 1 && (
+                                <Badge variant="outline" className="shrink-0 font-mono">
+                                  v{job.versionNumber}
+                                </Badge>
+                              )}
+                              {job.isCurrent === false && (
+                                <Badge variant="muted" className="shrink-0" title="A newer version of this document answers questions now">
+                                  Replaced
+                                </Badge>
+                              )}
                             </span>
                             <span className="truncate font-mono text-[11px] text-muted-foreground" title={job.id}>
                               {job.id}
@@ -244,6 +346,38 @@ export function RecentIngestionsTable({
                           year: "numeric",
                         })}
                       </td>
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
+                        {canAct && (
+                          <div className="inline-flex items-center gap-1">
+                            {isBusy ? (
+                              <Loader2Icon className="size-4 animate-spin text-muted-foreground" aria-label="Working" />
+                            ) : (
+                              <>
+                                <Button
+                                  size="icon-sm"
+                                  variant="ghost"
+                                  onClick={() => chooseVersionFile(job.documentId!)}
+                                  disabled={busyDocumentId !== null}
+                                  aria-label={`Upload a new version of ${name}`}
+                                  title="Upload new version"
+                                >
+                                  <FilePlus2Icon />
+                                </Button>
+                                <Button
+                                  size="icon-sm"
+                                  variant="ghost"
+                                  onClick={() => setPendingDelete({ documentId: job.documentId!, name })}
+                                  disabled={busyDocumentId !== null}
+                                  aria-label={`Delete ${name}`}
+                                  title="Delete document"
+                                >
+                                  <Trash2Icon />
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
@@ -252,6 +386,27 @@ export function RecentIngestionsTable({
           </div>
         )}
       </div>
+
+      <Dialog open={pendingDelete !== null} onOpenChange={(open) => !open && setPendingDelete(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete this document?</DialogTitle>
+            <DialogDescription>
+              &ldquo;{pendingDelete?.name}&rdquo; and all its versions will be removed. It stops appearing in
+              answers immediately, and its citations in earlier chats will no longer open.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setPendingDelete(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDelete} data-testid="confirm-delete-button">
+              <Trash2Icon data-icon="inline-start" />
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

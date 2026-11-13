@@ -69,6 +69,9 @@ export class VectorSearchRepository {
       .addSelect('documentChunk.metadataJson', 'metadataJson')
       .addSelect(distanceExpression, 'distance')
       .where('documentChunk.embedding IS NOT NULL')
+      /* Only the current version answers: older versions keep their chunks, and a new version's
+         chunks wait until it is fully indexed */
+      .andWhere('documentChunk.versionId = document.currentVersionId')
       .andWhere(`${distanceExpression} <= :maxDistance`)
       .setParameters({
         queryVector: vectorJson,
@@ -130,6 +133,7 @@ export class VectorSearchRepository {
       .addSelect('documentChunk.metadataJson', 'metadataJson')
       .addSelect(rankExpression, 'similarity')
       .where("to_tsvector('english', documentChunk.content) @@ websearch_to_tsquery('english', :queryText)")
+      .andWhere('documentChunk.versionId = document.currentVersionId')
       .setParameters({
         queryText: trimmedQuery,
       })

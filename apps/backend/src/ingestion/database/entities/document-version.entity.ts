@@ -6,11 +6,14 @@ import {
   ManyToOne,
   OneToOne,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { DocumentEntity } from './document.entity';
 import { IngestionJobEntity } from './ingestion-job.entity';
 
+/* One row per upload of a document; version_number is unique within the document */
 @Entity('document_versions')
+@Index('UQ_document_versions_document_version', ['documentId', 'versionNumber'], { unique: true })
 export class DocumentVersionEntity {
   /* Database-generated primary identifier for physical document version */
   @PrimaryGeneratedColumn('uuid')

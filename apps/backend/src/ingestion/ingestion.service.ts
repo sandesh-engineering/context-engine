@@ -5,6 +5,8 @@ import {
   BadRequestException,
   PayloadTooLargeException,
   NotFoundException,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Readable, Transform, pipeline } from 'stream';
@@ -18,6 +20,10 @@ import {
 import { IngestionPersistenceService } from './services/ingestion-persistence.service';
 import { StoragePathBuilder } from './services/storage-path-builder.service';
 import { IngestionJobsRepository } from './database/repositories/ingestion-jobs.repository';
+import {
+  DocumentsRepository,
+  type DocumentFilenameMatch,
+} from './database/repositories/documents.repository';
 import { DocumentSourceType, IngestionJobStatus, IngestionJobStage } from './common/enums';
 import { AppTracer, SemanticAttributes } from '../common/telemetry';
 import { StructuredLogger, LogEvents } from '../common/logger';
@@ -35,11 +41,14 @@ export interface DocumentUploadStreamParams {
   title: string;
   maxSizeBytes?: number;
   traceId?: string;
+  /** Set to upload a new version of this document instead of creating a new document. */
+  documentId?: string;
 }
 
 export interface DocumentUploadResponse {
   documentId: string;
   versionId: string;
+  versionNumber: number;
   jobId: string;
   status: IngestionJobStatus;
   stage: IngestionJobStage;
@@ -62,6 +71,11 @@ export interface IngestionJobItem {
   byteSize?: number;
   /** Reason of the last failed attempt (FAILED jobs only). */
   errorMessage?: string;
+  documentId?: string;
+  versionId?: string;
+  versionNumber?: number;
+  /** False once a newer version of the document has taken over. */
+  isCurrent?: boolean;
 }
 
 export interface DocumentFile {
@@ -81,6 +95,7 @@ export class IngestionService {
     private readonly storageService: IObjectStorageService,
     private readonly persistenceService: IngestionPersistenceService,
     private readonly jobsRepository: IngestionJobsRepository,
+    private readonly documentsRepository: DocumentsRepository,
     private readonly pathBuilder: StoragePathBuilder,
     private readonly configService: ConfigService,
   ) {
@@ -118,7 +133,60 @@ export class IngestionService {
       createdAt: job.createdAt ? job.createdAt.toISOString() : new Date().toISOString(),
       byteSize: Number(job.version?.byteSize || 0),
       errorMessage: job.status === IngestionJobStatus.FAILED ? job.errorMessage : undefined,
+      documentId: job.version?.documentId,
+      versionId: job.versionId,
+      versionNumber: job.version?.versionNumber,
+      isCurrent: job.version?.document?.currentVersionId === job.versionId,
     }));
+  }
+
+  /**
+   * Lists documents whose current version has this file name, so the client can ask whether an
+   * upload is a new version of one of them. A match is only a hint; nothing is replaced automatically.
+   *
+   * @param {string} filename - File name of the upload about to start
+   * @returns {Promise<DocumentFilenameMatch[]>} Matching documents, newest first
+   * @throws {BadRequestException} Throws if the filename is empty
+   */
+  async findPossibleVersionTargets(filename: string): Promise<DocumentFilenameMatch[]> {
+    const trimmed = filename?.trim();
+    if (!trimmed) {
+      throw new BadRequestException('filename is required');
+    }
+    return this.documentsRepository.findByCurrentFilename(trimmed);
+  }
+
+  /**
+   * Deletes a document: it stops answering at once, then its stored files are removed.
+   *
+   * @remarks
+   * - Chunks, versions and jobs go in one transaction (database cascades).
+   * - Stored files are removed afterwards on a best-effort basis; a failure leaves an orphaned
+   *   object in storage but never a document that still answers.
+   * - In-flight queue messages for the document find no job and are dropped by the workers.
+   *
+   * @param {string} documentId - Document identifier
+   * @throws {NotFoundException} Throws if the document does not exist
+   */
+  async deleteDocument(documentId: string): Promise<void> {
+    const storageKeys = await this.documentsRepository.deleteWithVersions(documentId);
+    if (!storageKeys) {
+      throw new NotFoundException('Document not found');
+    }
+
+    this.logger.logEvent('document.deleted', { documentId, versionCount: storageKeys.length });
+
+    for (const storageKey of storageKeys) {
+      try {
+        await this.storageService.deleteObject(storageKey);
+      } catch (cleanupError) {
+        this.logger.error('Failed deleting stored file of a deleted document', {
+          documentId,
+          storageKey,
+          error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+        });
+      }
+    }
   }
 
   /**
@@ -188,6 +256,11 @@ export class IngestionService {
       async (span) => {
         this.validateUploadParameters(params);
 
+        /* Fail before streaming anything when the target of a new version does not exist */
+        if (params.documentId && !(await this.documentsRepository.exists(params.documentId))) {
+          throw new NotFoundException('Document not found');
+        }
+
         /* Random ids: concurrent uploads must never share (and overwrite) a storage key */
         const tempDocId = `doc_${randomUUID()}`;
         const tempVerId = `ver_${randomUUID()}`;
@@ -212,8 +285,12 @@ export class IngestionService {
 
         /* Steps 3-4 share the catch below, so a failed lookup or commit removes the staged object */
         try {
-          /* Step 3: Identical bytes already ingested (or in progress): reuse instead of indexing a duplicate */
-          const existing = await this.jobsRepository.findReusableJobByDigest(uploadResult.sha256Digest);
+          /* Step 3: Identical bytes already ingested (or in progress): reuse instead of indexing a duplicate.
+             A new version only matches versions of its own document. */
+          const existing = await this.jobsRepository.findReusableJobByDigest(
+            uploadResult.sha256Digest,
+            params.documentId,
+          );
           if (existing?.version?.document) {
             await this.deleteStagedObject(storageKey, params.traceId);
             this.logger.logEvent(LogEvents.INGESTION_INTAKE_COMPLETED, {
@@ -226,6 +303,7 @@ export class IngestionService {
             return {
               documentId: existing.version.document.id,
               versionId: existing.version.id,
+              versionNumber: existing.version.versionNumber,
               jobId: existing.id,
               status: existing.status,
               stage: existing.stage,
@@ -237,9 +315,8 @@ export class IngestionService {
             };
           }
 
-          /* Step 4: Atomically commit Document, Version, IngestionJob, Outbox in DB */
-          const persisted = await this.persistenceService.persistUploadedDocument({
-            title: params.title,
+          /* Step 4: Atomically commit (Document,) Version, IngestionJob, Outbox in DB */
+          const versionParams = {
             storageKey,
             sha256Digest: uploadResult.sha256Digest,
             byteSize: uploadResult.byteSize,
@@ -249,7 +326,13 @@ export class IngestionService {
               traceId: params.traceId,
               source: 'direct_upload',
             },
-          });
+          };
+          const persisted = params.documentId
+            ? await this.persistenceService.persistNewVersion(params.documentId, versionParams)
+            : await this.persistenceService.persistUploadedDocument({
+                ...versionParams,
+                title: params.title,
+              });
 
           span.setAttribute(SemanticAttributes.KE_JOB_ID, persisted.job.id);
           span.setAttribute(SemanticAttributes.KE_DOCUMENT_ID, persisted.document.id);
@@ -266,6 +349,7 @@ export class IngestionService {
           return {
             documentId: persisted.document.id,
             versionId: persisted.version.id,
+            versionNumber: persisted.version.versionNumber,
             jobId: persisted.job.id,
             status: persisted.job.status,
             stage: persisted.job.stage,
@@ -281,6 +365,10 @@ export class IngestionService {
             traceId: params.traceId,
           });
           await this.compensateStorageRollback(storageKey, params.traceId, dbError);
+          /* e.g. the document was deleted while its new version was uploading */
+          if (dbError instanceof HttpException && dbError.getStatus() < HttpStatus.INTERNAL_SERVER_ERROR) {
+            throw dbError;
+          }
           throw new InternalServerErrorException(
             'Failed to record document metadata after storage staging',
           );
