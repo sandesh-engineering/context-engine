@@ -44,9 +44,8 @@ src/ingestion/
 │   ├── ingestion-pipeline.spec.ts
 │   ├── storage.spec.ts
 │   └── validation.spec.ts
-├── common/                       # Shared enums and context decorators
-│   ├── enums.ts                  # DocumentSourceType, IngestionJobStatus, IngestionJobStage, SagaDomain
-│   └── tenant.decorator.ts       # @Tenant() decorator and TenantContext interface
+├── common/                       # Shared enums
+│   └── enums.ts                  # DocumentSourceType, IngestionJobStatus, IngestionJobStage, SagaDomain
 ├── database/
 │   └── entities/                 # TypeORM entities with field explanations
 │       ├── document.entity.ts
@@ -84,7 +83,6 @@ src/ingestion/
 
 **Headers:**
 - `Content-Type: multipart/form-data`
-- `x-tenant-id: string` (optional if attached via auth middleware)
 - `x-trace-id: string` (optional distributed trace ID)
 
 **Body:**
@@ -101,7 +99,7 @@ src/ingestion/
     "jobId": "job_01J7ABC123XYZ",
     "status": "PENDING",
     "stage": "AVAILABLE",
-    "storageKey": "tenants/ten_123/documents/doc_01J7ABC456DEF/versions/ver_01J7ABC789GHI/raw.bin",
+    "storageKey": "documents/doc_01J7ABC456DEF/versions/ver_01J7ABC789GHI/raw.bin",
     "sha256Digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "byteSize": 1048576,
     "createdAt": "2026-09-16T00:00:00.000Z"

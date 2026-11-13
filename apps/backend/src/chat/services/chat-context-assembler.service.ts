@@ -34,8 +34,10 @@ export class ChatContextAssembler {
     const citations: CitationMetadata[] = candidateChunks.map((chunk) => ({
       chunkId: chunk.id,
       versionId: chunk.versionId,
+      documentTitle: chunk.documentTitle,
       chunkIndex: chunk.chunkIndex,
       headingPath: chunk.headingPath,
+      pageStart: chunk.pageStart,
       similarity: chunk.similarity,
     }));
 

@@ -2,50 +2,81 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import { AlertCircleIcon, LayersIcon } from "lucide-react";
+import { Button } from "@repo/ui/components/button";
+import { Alert, AlertDescription, AlertTitle } from "@repo/ui/components/alert";
 import { useConversation } from "../../context/conversation-context";
 import { ChatInput } from "../../components/chat/chat-input";
-import { SparklesIcon } from "lucide-react";
+
+const SUGGESTED_PROMPTS = [
+  "Summarize the key points in the documents",
+  "What are the main requirements and constraints?",
+  "Explain the technical architecture overview",
+];
 
 export default function NewChatPage() {
   const router = useRouter();
   const { sendMessage, isSending, setActiveConversationId } = useConversation();
+  const [startError, setStartError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     setActiveConversationId(null);
   }, [setActiveConversationId]);
 
   const handleSend = async (text: string) => {
-    const newConvId = await sendMessage(text);
-    if (newConvId) {
-      router.push(`/chat/${newConvId}`);
+    setStartError(null);
+    try {
+      // Navigate as soon as the conversation exists so the question shows
+      // immediately and the answer streams in on the conversation page.
+      await sendMessage(text, undefined, {
+        onConversationReady: (id) => router.push(`/chat/${id}`),
+      });
+    } catch (err: unknown) {
+      setStartError(
+        err instanceof Error ? err.message : "Could not start a conversation. Is the backend running?"
+      );
     }
   };
 
   return (
-    <div className="flex flex-1 flex-col h-full overflow-hidden bg-background">
-      {/* Empty State Hero */}
-      <div className="flex flex-1 flex-col items-center justify-center p-6 text-center select-none">
-        <div className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary mb-3 shadow-2xs">
-          <SparklesIcon className="size-6" />
-        </div>
-        <h2 className="text-lg font-semibold tracking-tight text-foreground">
-          Ask Knowledge Engine
-        </h2>
-        <p className="max-w-sm text-xs text-muted-foreground mt-1.5 leading-relaxed">
-          Ask questions to query and extract insights from your uploaded documents and resources.
-        </p>
-      </div>
-
-      {/* Floating Prompt Input bar */}
-      <div className="shrink-0 border-t border-border/60 bg-background/90 px-4 py-3.5 backdrop-blur-md">
-        <div className="mx-auto max-w-3xl flex flex-col gap-1.5">
-          <ChatInput onSend={handleSend} isLoading={isSending} />
-          <div className="flex items-center justify-between px-1 text-[11px] text-muted-foreground/70">
-            <span>RAG Context Search active</span>
-            <span>
-              Press <kbd className="font-mono text-[10px] bg-muted px-1.5 py-0.5 rounded border border-border">Enter ↵</kbd> to send
-            </span>
+    <div className="flex flex-1 flex-col overflow-y-auto">
+      <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center gap-10 px-4 py-12 sm:px-6 md:pb-[12vh]">
+        <div className="flex flex-col items-center gap-4 text-center">
+          <div className="flex size-11 items-center justify-center rounded-xl border bg-card text-foreground shadow-xs">
+            <LayersIcon className="size-5" aria-hidden="true" />
           </div>
+          <h2 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+            What would you like to know?
+          </h2>
+          <p className="max-w-[52ch] text-base leading-relaxed text-pretty text-muted-foreground">
+            Ask questions and retrieve semantic insights from your uploaded documents. Every answer
+            cites the passages it came from.
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <ChatInput onSend={handleSend} isLoading={isSending} />
+          {startError && (
+            <Alert variant="destructive">
+              <AlertCircleIcon />
+              <AlertTitle>Could not send your question</AlertTitle>
+              <AlertDescription>{startError}</AlertDescription>
+            </Alert>
+          )}
+        </div>
+
+        <div className="flex flex-wrap justify-center gap-2">
+          {SUGGESTED_PROMPTS.map((prompt) => (
+            <Button
+              key={prompt}
+              variant="outline"
+              onClick={() => handleSend(prompt)}
+              disabled={isSending}
+              className="h-9 rounded-full px-4 font-normal text-muted-foreground hover:text-foreground"
+            >
+              {prompt}
+            </Button>
+          ))}
         </div>
       </div>
     </div>

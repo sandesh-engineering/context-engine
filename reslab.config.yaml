@@ -3,7 +3,7 @@
 
 version: "1.0"
 project: knowledge-engine
-containerPrefix: knowledge-engine
+containerPrefix: reslab-knowledge-engine
 architecture: monolith
 app:
   name: knowledge-engine-app
@@ -16,6 +16,7 @@ modules:
   - tracing
   - postgresql
   - logs
+  - docker_host
 ports:
   grafana: 3001
   prometheus: 9090

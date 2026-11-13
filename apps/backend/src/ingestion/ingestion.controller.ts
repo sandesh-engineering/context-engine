@@ -1,12 +1,19 @@
 import {
   Controller,
   Post,
+  Get,
+  Query,
   Req,
   Res,
   HttpCode,
   HttpStatus,
   BadRequestException,
+  HttpException,
   Headers,
+  Param,
+  ParseUUIDPipe,
+  ParseIntPipe,
+  DefaultValuePipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -14,18 +21,97 @@ import {
   ApiConsumes,
   ApiBody,
   ApiResponse,
-  ApiHeader,
+  ApiQuery,
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
+import type { Readable } from 'stream';
 import busboy from 'busboy';
 import { IngestionService } from './ingestion.service';
-import { Tenant } from './common/tenant.decorator';
-import type { TenantContext } from './common/tenant.decorator';
+
+/* Types safe to render in the browser; anything else is forced to download. */
+const INLINE_MIME_TYPES = new Set(['application/pdf', 'text/plain']);
+
+function contentDisposition(type: 'inline' | 'attachment', filename: string): string {
+  const asciiFallback = filename.replace(/[^\x20-\x7e]|["\\]/g, '_');
+  return `${type}; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+}
+
+/* Client errors keep their message; anything else is logged server-side and stays generic. */
+function toUploadErrorResponse(err: unknown): { status: number; message: string } {
+  if (err instanceof HttpException && err.getStatus() < HttpStatus.INTERNAL_SERVER_ERROR) {
+    return { status: err.getStatus(), message: err.message };
+  }
+  return {
+    status: HttpStatus.INTERNAL_SERVER_ERROR,
+    message: 'Failed to process document upload',
+  };
+}
 
 @ApiTags('Ingestion')
 @Controller('documents')
 export class IngestionController {
   constructor(private readonly ingestionService: IngestionService) { }
+
+  /**
+   * Retrieves recent ingestion jobs.
+   */
+  @Get()
+  @ApiOperation({
+    summary: 'List recent document ingestion jobs',
+    description: 'Retrieves recent ingestion jobs with status and document details',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    description: 'Maximum number of jobs to return (default 30, max 100)',
+  })
+  async getRecentIngestions(
+    @Query('limit', new DefaultValuePipe(30), ParseIntPipe) limit: number,
+  ) {
+    /* The service clamps the range */
+    return this.ingestionService.getRecentJobs(limit);
+  }
+
+  /**
+   * Streams the original stored file of a document version so cited sources can be opened.
+   *
+   * @remarks
+   * - Only PDF and plain text render inline; other types are sent as attachments
+   *   so stored HTML can never execute in the API origin.
+   */
+  @Get('versions/:versionId/file')
+  @ApiOperation({
+    summary: 'Open a document version file',
+    description: 'Streams the raw stored file for a document version referenced by a citation',
+  })
+  @ApiResponse({ status: 200, description: 'File stream' })
+  @ApiResponse({ status: 404, description: 'Version not found' })
+  async getDocumentFile(
+    @Param('versionId', new ParseUUIDPipe()) versionId: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const file = await this.ingestionService.getDocumentFile(versionId);
+    const mimeType = (file.mimeType || '').toLowerCase();
+    const inline = INLINE_MIME_TYPES.has(mimeType);
+
+    res.setHeader('Content-Type', inline ? mimeType : 'application/octet-stream');
+    res.setHeader('Content-Disposition', contentDisposition(inline ? 'inline' : 'attachment', file.filename || 'document'));
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    if (file.byteSize > 0) {
+      res.setHeader('Content-Length', String(file.byteSize));
+    }
+
+    file.stream.on('error', (err) => {
+      if (!res.headersSent) {
+        res.status(HttpStatus.BAD_GATEWAY).json({ message: 'Failed to read document from storage' });
+      } else {
+        res.destroy(err);
+      }
+    });
+    file.stream.pipe(res);
+  }
 
   /**
    * Accepts a direct single-document multipart/form-data upload stream.
@@ -37,7 +123,6 @@ export class IngestionController {
    *
    * @param {Request} req - Raw express request containing multipart stream
    * @param {Response} res - Express response object
-   * @param {TenantContext} tenant - Authenticated tenant context
    * @param {string} traceIdHeader - Optional distributed trace identifier
    * @returns {Promise<void>} Sends HTTP 202 Accepted with job metadata
    * @throws {BadRequestException} Throws if format is invalid or file missing
@@ -55,11 +140,6 @@ export class IngestionController {
     description: 'Streams a document (PDF) directly to object storage and enqueues ingestion job',
   })
   @ApiConsumes('multipart/form-data')
-  @ApiHeader({
-    name: 'x-tenant-id',
-    required: false,
-    description: 'Tenant identifier (if not provided by session/auth middleware)',
-  })
   @ApiBody({
     schema: {
       type: 'object',
@@ -83,7 +163,7 @@ export class IngestionController {
   })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
-    description: 'Invalid file format, missing tenant, or corrupt stream',
+    description: 'Invalid file format or corrupt stream',
   })
   @ApiResponse({
     status: HttpStatus.PAYLOAD_TOO_LARGE,
@@ -92,7 +172,6 @@ export class IngestionController {
   async uploadDocument(
     @Req() req: Request,
     @Res() res: Response,
-    @Tenant() tenant: TenantContext,
     @Headers('x-trace-id') traceIdHeader?: string,
   ): Promise<void> {
     const contentType = req.headers['content-type'];
@@ -104,12 +183,36 @@ export class IngestionController {
 
     let titleField: string | undefined;
     let fileHandled = false;
-    let uploadPromise: Promise<any> | null = null;
+    let responded = false;
+    let activeFileStream: Readable | undefined;
+
+    /* A client that disconnects mid-upload ends neither busboy nor the file stream; fail the
+       stream so the storage upload aborts its multipart upload and the request settles */
+    req.on('close', () => {
+      if (!req.complete && activeFileStream) {
+        activeFileStream.destroy(new Error('Client disconnected during upload'));
+      }
+    });
+
+    const respond = (status: number, body: Record<string, unknown>): void => {
+      if (responded || res.headersSent) return;
+      responded = true;
+      res.status(status).json({ statusCode: status, ...body });
+    };
+
+    /* Stop feeding busboy and drain the rest of the request once a response is decided */
+    const stopReading = (): void => {
+      req.unpipe(bb);
+      req.resume();
+    };
 
     const bb = busboy({
       headers: req.headers,
       limits: {
-        fileSize: 500 * 1024 * 1024,
+        /* One byte over the cap so the service's size limiter rejects oversized
+           files instead of busboy silently truncating them. */
+        fileSize: this.ingestionService.maxUploadBytes + 1,
+        files: 1,
       },
     });
 
@@ -126,45 +229,40 @@ export class IngestionController {
         return;
       }
       fileHandled = true;
+      activeFileStream = fileStream;
 
       const filename = info.filename || 'document.pdf';
       const effectiveTitle = titleField || filename;
 
-      uploadPromise = this.ingestionService.uploadDocument({
-        stream: fileStream,
-        originalFilename: filename,
-        title: effectiveTitle,
-        tenantId: tenant.tenantId,
-        traceId,
-      });
+      /* Settle immediately: validation can reject while busboy is still reading,
+         and a rejection left unhandled until 'close' would crash the process. */
+      this.ingestionService
+        .uploadDocument({
+          stream: fileStream,
+          originalFilename: filename,
+          title: effectiveTitle,
+          traceId,
+        })
+        .then(
+          (data) => respond(HttpStatus.ACCEPTED, { data }),
+          (err: unknown) => {
+            const { status, message } = toUploadErrorResponse(err);
+            respond(status, { message });
+            stopReading();
+          },
+        );
     });
 
-    bb.on('error', (err: Error) => {
-      res.status(HttpStatus.BAD_REQUEST).json({
-        statusCode: HttpStatus.BAD_REQUEST,
-        message: `Multipart parsing error: ${err.message}`,
-      });
+    bb.on('error', () => {
+      respond(HttpStatus.BAD_REQUEST, { message: 'Malformed multipart request' });
+      stopReading();
     });
 
-    bb.on('close', async () => {
-      if (!fileHandled || !uploadPromise) {
-        return res.status(HttpStatus.BAD_REQUEST).json({
-          statusCode: HttpStatus.BAD_REQUEST,
+    bb.on('close', () => {
+      /* With a file present, the upload outcome sends the response */
+      if (!fileHandled) {
+        respond(HttpStatus.BAD_REQUEST, {
           message: 'No file was provided in the multipart request',
-        });
-      }
-
-      try {
-        const result = await uploadPromise;
-        return res.status(HttpStatus.ACCEPTED).json({
-          statusCode: HttpStatus.ACCEPTED,
-          data: result,
-        });
-      } catch (err: any) {
-        const status = err.status || err.statusCode || HttpStatus.INTERNAL_SERVER_ERROR;
-        return res.status(status).json({
-          statusCode: status,
-          message: err.message || 'Failed to process document upload',
         });
       }
     });

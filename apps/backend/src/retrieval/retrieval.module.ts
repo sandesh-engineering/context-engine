@@ -5,10 +5,11 @@ import { RetrievalQueryValidator } from './services/retrieval-query-validator.se
 import { RetrievalService } from './services/retrieval.service';
 import { VectorSearchRepository } from './repositories/vector-search.repository';
 import { DocumentChunkEntity } from '../ingestion/database/entities/document-chunk.entity';
-import { EMBEDDING_PROVIDER } from '../ingestion/embeddings/interfaces/embedding-provider.interface';
-import { OllamaEmbeddingProvider } from '../ingestion/embeddings/providers/ollama-embedding.provider';
-import { GeminiEmbeddingProvider } from '../ingestion/embeddings/providers/gemini-embedding.provider';
+import { embeddingProviderDefinition } from '../ingestion/embeddings/embedding-provider.factory';
 import { AppConfigService } from '../config/app-config.service';
+import { RERANKER_PROVIDER } from './interfaces/reranker-provider.interface';
+import { HttpQwenRerankerProvider } from './providers/http-qwen-reranker.provider';
+import { HttpTeiRerankerProvider } from './providers/http-tei-reranker.provider';
 
 @Module({
   imports: [
@@ -20,17 +21,25 @@ import { AppConfigService } from '../config/app-config.service';
     RetrievalQueryValidator,
     VectorSearchRepository,
     RetrievalService,
-    OllamaEmbeddingProvider,
-    GeminiEmbeddingProvider,
+    embeddingProviderDefinition,
+    HttpQwenRerankerProvider,
+    HttpTeiRerankerProvider,
     {
-      provide: EMBEDDING_PROVIDER,
-      useClass: OllamaEmbeddingProvider,
+      provide: RERANKER_PROVIDER,
+      useFactory: (appConfig: AppConfigService) => {
+        if (appConfig.rerankerProviderType === 'ollama') {
+          return new HttpQwenRerankerProvider(appConfig);
+        }
+        return new HttpTeiRerankerProvider(appConfig);
+      },
+      inject: [AppConfigService],
     },
   ],
   exports: [
     RetrievalService,
     RetrievalQueryValidator,
     VectorSearchRepository,
+    RERANKER_PROVIDER,
   ],
 })
 export class RetrievalModule {}

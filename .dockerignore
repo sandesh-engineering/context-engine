@@ -1,0 +1,22 @@
+# Build context for apps/*/Dockerfile (context is the repo root).
+
+# Never ship secrets into image layers.
+**/.env
+**/.env.*
+
+# Host build output: rebuilt inside the image. Stale *.tsbuildinfo would make
+# `tsc --build` skip emitting packages/api/dist, so drop it too.
+**/node_modules
+**/.next
+**/dist
+**/.turbo
+**/coverage
+**/*.tsbuildinfo
+
+# Not needed to build any image.
+.git
+.github
+.reslab
+docs
+openspec
+terraform

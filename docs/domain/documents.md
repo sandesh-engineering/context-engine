@@ -22,7 +22,7 @@ The root aggregate representing a logical document within the system.
 A specific immutable snapshot of a Document's file content.
 
 - **Attributes**: `id`, `document_id`, `version_number`, `s3_object_key`, `file_hash`, `file_size_bytes`, `created_at`.
-- **Object Storage Convention**: `tenants/{tenant_id}/documents/{document_id}/versions/{version_id}/raw.bin` (user-supplied filenames are preserved solely in relational metadata to avoid collisions and path traversal).
+- **Object Storage Convention**: `documents/{document_id}/versions/{version_id}/raw.bin` (user-supplied filenames are preserved solely in relational metadata to avoid collisions and path traversal).
 - **Responsibilities**: Represents a single immutable file state that triggers an ingestion job.
 
 ---

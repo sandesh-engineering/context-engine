@@ -10,6 +10,7 @@ import { ChatContextAssembler } from '../services/chat-context-assembler.service
 import { ConversationEntity } from '../entities/conversation.entity';
 import { MessageEntity, MessageRole } from '../entities/message.entity';
 import { RetrievalService } from '../../retrieval/services/retrieval.service';
+import { RetrievalQueryValidator } from '../../retrieval/services/retrieval-query-validator.service';
 import { LLM_PROVIDER } from '../interfaces/llm-provider.interface';
 
 describe('ChatService', () => {
@@ -26,6 +27,7 @@ describe('ChatService', () => {
       save: jest.fn((entity) => Promise.resolve(entity)),
       findOne: jest.fn(),
       find: jest.fn().mockResolvedValue([{ id: 'conv-123', title: 'Test Title' }]),
+      findAndCount: jest.fn().mockResolvedValue([[{ id: 'conv-123', title: 'Test Title' }], 1]),
     };
 
     msgRepo = {
@@ -65,6 +67,7 @@ describe('ChatService', () => {
         { provide: DataSource, useValue: mockDataSource },
         { provide: RetrievalService, useValue: retrievalService },
         { provide: LLM_PROVIDER, useValue: llmProvider },
+        RetrievalQueryValidator,
       ],
     }).compile();
 
@@ -81,13 +84,18 @@ describe('ChatService', () => {
       expect(conv.id).toBe('conv-123');
     });
 
-    it('should retrieve all conversations', async () => {
-      const convs = await service.getAllConversations('user-1');
-      expect(convRepo.find).toHaveBeenCalledWith({
+    it('should retrieve paginated conversations', async () => {
+      const result = await service.getAllConversations({ userId: 'user-1', page: 1, limit: 20 });
+      expect(convRepo.findAndCount).toHaveBeenCalledWith({
         where: { userId: 'user-1' },
         order: { updatedAt: 'DESC' },
+        skip: 0,
+        take: 20,
       });
-      expect(convs).toHaveLength(1);
+      expect(result.items).toHaveLength(1);
+      expect(result.meta.total).toBe(1);
+      expect(result.meta.page).toBe(1);
+      expect(result.meta.limit).toBe(20);
     });
 
     it('should throw NotFoundException if conversation not found', async () => {
@@ -172,7 +180,7 @@ describe('ChatService', () => {
       const payload = JSON.parse(event.data as string);
 
       expect(payload.insufficientEvidence).toBe(true);
-      expect(payload.token).toContain('insufficient evidence');
+      expect(payload.token).toContain('unable to answer your question');
       expect(llmProvider.generateStream).not.toHaveBeenCalled();
     });
   });
@@ -200,6 +208,65 @@ describe('ChatService', () => {
 
       expect(payload.error).toBeDefined();
       expect(payload.isComplete).toBe(true);
+    });
+  });
+
+  describe('sendMessageStream - Reranked Retrieval Integration', () => {
+    it('should assemble context in reranked order and propagate reranked status to SSE and metadataJson', async () => {
+      convRepo.findOne.mockResolvedValue({ id: 'conv-123' });
+      retrievalService.retrieveCandidates.mockResolvedValue({
+        candidates: [
+          { id: 'chunk-reranked-1', content: 'Top reranked evidence', similarity: 0.98 },
+          { id: 'chunk-reranked-2', content: 'Second reranked evidence', similarity: 0.85 },
+        ],
+        reranked: true,
+        rerankFallback: false,
+      });
+
+      async function* mockStream() {
+        yield { token: 'Reranked answer token', isComplete: false };
+        yield { token: '', isComplete: true };
+      }
+
+      llmProvider.generateStream.mockReturnValue(mockStream());
+
+      const observable = await service.sendMessageStream({
+        conversationId: 'conv-123',
+        userQuery: 'What is the reranked answer?',
+        topK: 2,
+      });
+
+      const events: MessageEvent[] = [];
+      await new Promise<void>((resolve) => {
+        observable.subscribe({
+          next: (evt) => events.push(evt),
+          complete: () => resolve(),
+        });
+      });
+
+      expect(retrievalService.retrieveCandidates).toHaveBeenCalledWith({
+        query: 'What is the reranked answer?',
+        topK: 2,
+        similarityThreshold: undefined,
+        traceId: undefined,
+      });
+
+      // Verify the final SSE completion event includes reranked flag and citations
+      const finalEvent = events[events.length - 1];
+      const payload = JSON.parse(finalEvent!.data as string);
+      expect(payload.isComplete).toBe(true);
+      expect(payload.reranked).toBe(true);
+      expect(payload.citations).toBeDefined();
+
+      // Verify message repository saved message with reranked metadata
+      expect(msgRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadataJson: expect.objectContaining({
+            reranked: true,
+            rerankFallback: false,
+          }),
+        }),
+      );
     });
   });
 });

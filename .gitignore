@@ -41,3 +41,42 @@ base-monorepo-repo
 
 # ResLab runtime directory
 .reslab/
+
+
+# Local .terraform directories (contains provider binaries and modules)
+**/.terraform/*
+
+# .tfstate files (contains sensitive production infrastructure data and secrets)
+*.tfstate
+*.tfstate.*
+
+# Crash logs
+crash.log
+crash.*.log
+
+# Exclude all variable files as they often contain secrets/credentials
+*.tfvars
+*.tfvars.json
+
+# Ignore override files as they are specific to your local machine
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Include override files for ignoring CLI configurations
+.terraformrc
+terraform.rc
+
+# Ignore terraform plan outputs (can contain sensitive data)
+*tfplan*
+
+.env.*
+.actrc
+# Local act runs (see .github/workflows/ci-cd.local.yml)
+.github/workflows/*.local.yml
+.secrets
+.vars
+
+# TypeScript incremental build state (stale copies make tsc --build skip emitting dist/)
+*.tsbuildinfo

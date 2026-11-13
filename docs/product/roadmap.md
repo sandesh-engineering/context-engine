@@ -11,25 +11,35 @@ This document outlines the implementation status and future trajectory of Knowle
 
 ---
 
-## 2. Current Focus (Phase 1 — Foundation & Reliable Ingestion)
+## 2. Phase 1 — Foundation & Reliable Ingestion (implemented)
 
-- [ ] Relational schema definition in PostgreSQL (Document, DocumentVersion, IngestionJob, OutboxMessage).
-- [ ] `pgvector` extension setup and schema indexing.
-- [ ] Transactional Outbox pattern implementation for document ingestion events.
-- [ ] SQS work distribution queue integration.
-- [ ] Asynchronous Ingestion Worker with checkpoint processing state machine (`PENDING` → `COMPLETED`).
-- [ ] Self-hosted/local embedding model integration (`Ollama` / local transformer interface).
+- [x] Relational schema definition in PostgreSQL (Document, DocumentVersion, IngestionJob, OutboxMessage).
+- [x] `pgvector` extension setup and schema indexing.
+- [x] Transactional Outbox pattern implementation for document ingestion events.
+- [x] SQS work distribution queue integration.
+- [x] Asynchronous Ingestion Worker with checkpoint processing state machine (`PENDING` → `COMPLETED`).
+- [x] Self-hosted/local embedding model integration (`Ollama` / local transformer interface).
 
 ---
 
-## 3. Planned (Phase 2 — Retrieval & Chat Engine)
+## 3. Phase 2 — Retrieval & Chat Engine (implemented)
 
-- [ ] Vector search query pipeline using `pgvector` cosine/L2 similarity.
-- [ ] Simple top-$K$ passage extraction and prompt context assembly.
-- [ ] LLM provider boundary implementation (supporting local model via Ollama / mock provider).
-- [ ] Grounded answer generation with insufficient evidence detection.
-- [ ] Server-Sent Events (SSE) / WebSocket streaming of chat responses.
-- [ ] Inline source citation rendering.
+Also implemented behind feature flags (off by default): hybrid dense + full-text search with Reciprocal Rank Fusion (`HYBRID_SEARCH_ENABLED`) and cross-encoder reranking (`RERANKING_ENABLED`).
+
+### Next
+
+- [ ] Authentication and per-user access to conversations and documents.
+- [ ] Rate limits and chat context-window limits.
+- [ ] URL / S3 import (ADR-006), connectors (Notion, Confluence), more file types and multi-file upload.
+
+### Phase 2 items
+
+- [x] Vector search query pipeline using `pgvector` cosine/L2 similarity.
+- [x] Simple top-$K$ passage extraction and prompt context assembly.
+- [x] LLM provider boundary implementation (supporting local model via Ollama / mock provider).
+- [x] Grounded answer generation with insufficient evidence detection.
+- [x] Server-Sent Events (SSE) / WebSocket streaming of chat responses.
+- [x] Inline source citation rendering.
 
 ---
 

@@ -3,24 +3,32 @@ import {
   Inject,
   Optional,
   NotFoundException,
+  BadRequestException,
   MessageEvent,
 } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
-import { Observable, Subject } from 'rxjs';
+import { Observable, ReplaySubject, Subject } from 'rxjs';
 import { ConversationEntity } from '../entities/conversation.entity';
 import { MessageEntity, MessageRole } from '../entities/message.entity';
+import { GetConversationsDto, PaginatedConversationsResponse } from '../dto';
 import { RetrievalService } from '../../retrieval/services/retrieval.service';
+import { RetrievalQueryValidator } from '../../retrieval/services/retrieval-query-validator.service';
+import { InvalidQueryException } from '../../retrieval/exceptions/invalid-query.exception';
 import { ChatContextAssembler } from './chat-context-assembler.service';
 import type { ILlmProvider, MessageHistory } from '../interfaces/llm-provider.interface';
 import { LLM_PROVIDER } from '../interfaces/llm-provider.interface';
 import { AppTracer, SemanticAttributes } from '../../common/telemetry';
 import { StructuredLogger, LogEvents } from '../../common/logger';
 
+import { CitationMetadata } from '../entities/message.entity';
+
 export interface SendMessageParams {
   conversationId?: string;
   userQuery: string;
   userId?: string;
   title?: string;
+  topK?: number;
+  similarityThreshold?: number;
   signal?: AbortSignal;
   traceId?: string;
 }
@@ -31,6 +39,8 @@ export interface StreamEventPayload {
   conversationId?: string;
   messageId?: string;
   insufficientEvidence?: boolean;
+  citations?: CitationMetadata[];
+  reranked?: boolean;
 }
 
 @Injectable()
@@ -45,6 +55,7 @@ export class ChatService {
     private readonly contextAssembler: ChatContextAssembler,
     @Inject(LLM_PROVIDER)
     private readonly llmProvider: ILlmProvider,
+    private readonly queryValidator: RetrievalQueryValidator,
     @Optional() convRepo?: Repository<ConversationEntity>,
     @Optional() msgRepo?: Repository<MessageEntity>,
   ) {
@@ -70,16 +81,50 @@ export class ChatService {
   }
 
   /**
-   * Retrieves all conversation sessions, optionally filtered by user ID.
+   * Retrieves paginated conversation sessions, optionally filtered by user ID.
    */
-  async getAllConversations(userId?: string): Promise<ConversationEntity[]> {
+  async getAllConversations(
+    query?: GetConversationsDto | string,
+    pageParam?: number,
+    limitParam?: number,
+  ): Promise<PaginatedConversationsResponse<ConversationEntity>> {
+    let userId: string | undefined;
+    let page = 1;
+    let limit = 20;
+
+    if (typeof query === 'string') {
+      userId = query;
+      page = pageParam ?? 1;
+      limit = limitParam ?? 20;
+    } else if (query) {
+      userId = query.userId;
+      page = query.page ?? 1;
+      limit = query.limit ?? 20;
+    }
+
     const where = userId ? { userId } : {};
-    return this.conversationRepository.find({
+    const [items, total] = await this.conversationRepository.findAndCount({
       where,
       order: {
         updatedAt: 'DESC',
       },
+      skip: (page - 1) * limit,
+      take: limit,
     });
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      items,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+      },
+    };
   }
 
   /**
@@ -108,9 +153,21 @@ export class ChatService {
     return conversation;
   }
 
-  private isUuid(id?: string): boolean {
-    if (!id) return false;
-    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+  /**
+   * Applies the retrieval query rules up front so rejected queries never create
+   * a conversation or a stored USER message.
+   *
+   * @throws {BadRequestException} Throws if the query fails validation
+   */
+  private assertValidQuery(userQuery: string): void {
+    try {
+      this.queryValidator.validate(userQuery);
+    } catch (err) {
+      if (err instanceof InvalidQueryException) {
+        throw new BadRequestException(err.message);
+      }
+      throw err;
+    }
   }
 
   /**
@@ -137,6 +194,8 @@ export class ChatService {
     if (params.conversationId && params.conversationId !== 'new') {
       conversation = await this.conversationRepository.findOne({
         where: { id: params.conversationId },
+        /* LLM session columns are hidden by default (select: false); the stream needs them */
+        select: { id: true, providerSessionId: true, contextState: true },
       });
 
       if (!conversation) {
@@ -147,7 +206,12 @@ export class ChatService {
           `Conversation with ID '${params.conversationId}' was not found.`,
         );
       }
-    } else {
+    }
+
+    /* Reject invalid queries before creating or persisting anything */
+    this.assertValidQuery(params.userQuery);
+
+    if (!conversation) {
       /* Handle fresh chat session creation dynamically */
       const autoTitle =
         params.title ||
@@ -172,7 +236,8 @@ export class ChatService {
     });
     await this.messageRepository.save(userMessage);
 
-    const subject = new Subject<MessageEvent>();
+    /* Replay: processing starts before Nest subscribes, and early events must not be lost */
+    const subject = new ReplaySubject<MessageEvent>();
 
     /* Execute retrieval and streaming asynchronously inside root trace span */
     AppTracer.traceSpan(
@@ -181,7 +246,7 @@ export class ChatService {
         attributes: {
           'conversation.id': conversation.id,
           'user.query_length': params.userQuery.length,
-          [SemanticAttributes.KE_TENANT_ID]: params.userId || 'default',
+          'user.id': params.userId || 'anonymous',
         },
       },
       async (span) => {
@@ -229,11 +294,25 @@ export class ChatService {
     conversation: ConversationEntity,
     subject: Subject<MessageEvent>,
   ): Promise<void> {
-    /* Step 2: Trigger vector candidate retrieval */
+    /* Step 2: Trigger candidate retrieval (with cross-encoder reranking if enabled) */
     const retrievalResult = await this.retrievalService.retrieveCandidates({
       query: params.userQuery,
+      topK: params.topK,
+      similarityThreshold: params.similarityThreshold,
       traceId: params.traceId,
+      signal: params.signal,
     });
+
+    /* Client disconnected during retrieval: skip the LLM call entirely */
+    if (params.signal?.aborted) {
+      this.logger.logEvent('chat.request.aborted', {
+        conversationId: conversation.id,
+        stage: 'retrieval',
+        traceId: params.traceId,
+      });
+      subject.complete();
+      return;
+    }
 
     /* Step 3: Handle insufficient evidence fail-fast */
     if (retrievalResult.candidates.length === 0) {
@@ -245,7 +324,11 @@ export class ChatService {
         role: MessageRole.ASSISTANT,
         content: fallbackContent,
         insufficientEvidence: true,
-        metadataJson: { traceId: params.traceId },
+        metadataJson: {
+          traceId: params.traceId,
+          reranked: retrievalResult.reranked ?? false,
+          rerankFallback: retrievalResult.rerankFallback ?? false,
+        },
       });
 
       const savedFallbackMsg = await this.messageRepository.save(
@@ -259,6 +342,7 @@ export class ChatService {
           conversationId: conversation.id,
           messageId: savedFallbackMsg.id,
           insufficientEvidence: true,
+          reranked: retrievalResult.reranked ?? false,
         } as StreamEventPayload),
       } as MessageEvent);
 
@@ -272,6 +356,7 @@ export class ChatService {
       {
         attributes: {
           'candidate.count': retrievalResult.candidates.length,
+          [SemanticAttributes.RAG_RERANK_ENABLED]: retrievalResult.reranked ?? false,
         },
       },
       async () => {
@@ -284,6 +369,7 @@ export class ChatService {
           conversationId: conversation.id,
           evidenceChunkCount: result.evidenceChunkIds.length,
           citationCount: result.citations.length,
+          reranked: retrievalResult.reranked ?? false,
         });
 
         return result;
@@ -361,6 +447,9 @@ export class ChatService {
             }
           }
 
+          /* Providers end their stream quietly on abort, so re-check after the loop */
+          isAborted = isAborted || Boolean(params.signal?.aborted);
+
           llmSpan.setAttribute('llm.tokens_emitted', tokenCount);
           llmSpan.setAttribute('llm.aborted', isAborted);
 
@@ -378,6 +467,11 @@ export class ChatService {
             });
           }
 
+          /* Nothing was generated before the client left: no answer to persist */
+          if (isAborted && !accumulatedContent) {
+            return;
+          }
+
           /* Step 6: Commit complete ASSISTANT message turn to database */
           const assistantMessage = this.messageRepository.create({
             conversationId: conversation.id,
@@ -389,6 +483,8 @@ export class ChatService {
             metadataJson: {
               traceId: params.traceId,
               aborted: isAborted,
+              reranked: retrievalResult.reranked ?? false,
+              rerankFallback: retrievalResult.rerankFallback ?? false,
             },
           });
 
@@ -403,9 +499,20 @@ export class ChatService {
               conversationId: conversation.id,
               messageId: savedAssistantMsg.id,
               insufficientEvidence: false,
+              citations: assembledContext.citations,
+              reranked: retrievalResult.reranked ?? false,
             } as StreamEventPayload),
           } as MessageEvent);
         } catch (llmError) {
+          /* Client disconnected while the provider request was in flight */
+          if (params.signal?.aborted) {
+            this.logger.logEvent('chat.request.aborted', {
+              conversationId: conversation.id,
+              stage: 'llm_generation',
+              traceId: params.traceId,
+            });
+            return;
+          }
           this.logger.logError('chat.llm.failed', llmError, {
             conversationId: conversation.id,
           });

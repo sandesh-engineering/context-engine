@@ -28,7 +28,6 @@ export const SemanticAttributes = {
   KE_DOCUMENT_ID: 'knowledge_engine.document_id',
   KE_VERSION_ID: 'knowledge_engine.version_id',
   KE_CHUNK_ID: 'knowledge_engine.chunk_id',
-  KE_TENANT_ID: 'knowledge_engine.tenant_id',
   KE_STAGE: 'knowledge_engine.stage',
   KE_ATTEMPT: 'knowledge_engine.attempt',
 
@@ -40,6 +39,17 @@ export const SemanticAttributes = {
   RAG_CANDIDATE_IDS: 'rag.candidate_ids',
   RAG_LLM_MODEL: 'rag.llm.model',
   RAG_INSUFFICIENT_EVIDENCE: 'rag.insufficient_evidence',
+  RAG_RERANK_ENABLED: 'rag.rerank.enabled',
+  RAG_RERANK_MODEL: 'rag.rerank.model',
+  RAG_RERANK_CANDIDATES_IN: 'rag.rerank.candidates_in',
+  RAG_RERANK_CANDIDATES_OUT: 'rag.rerank.candidates_out',
+  RAG_RERANK_FALLBACK: 'rag.rerank.fallback',
+  RAG_RERANK_DURATION_MS: 'rag.rerank.duration_ms',
+  RAG_HYBRID_ENABLED: 'rag.hybrid.enabled',
+  RAG_KEYWORD_RETRIEVED_COUNT: 'rag.keyword.retrieved_count',
+  RAG_VECTOR_RETRIEVED_COUNT: 'rag.vector.retrieved_count',
+  RAG_RRF_FUSED_COUNT: 'rag.rrf.fused_count',
+  RAG_KEYWORD_FALLBACK: 'rag.keyword.fallback',
 
   // Error Classification
   ERROR_TYPE: 'error.type',

@@ -1,5 +1,20 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import {
+  IsInt,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
+import {
+  MAX_QUERY_LENGTH,
+  MAX_TITLE_LENGTH,
+  MAX_IDENTIFIER_LENGTH,
+  MAX_TOP_K,
+} from './chat-limits';
 
 export class SendMessageDto {
   @ApiProperty({
@@ -8,14 +23,16 @@ export class SendMessageDto {
   })
   @IsString()
   @IsNotEmpty()
+  @MaxLength(MAX_QUERY_LENGTH)
   query!: string;
 
   @ApiPropertyOptional({
-    description: 'Optional tenant/user identifier when initiating dynamic fresh chat',
+    description: 'Optional user identifier when initiating dynamic fresh chat',
     example: 'user-001',
   })
   @IsOptional()
   @IsString()
+  @MaxLength(MAX_IDENTIFIER_LENGTH)
   userId?: string;
 
   @ApiPropertyOptional({
@@ -24,6 +41,7 @@ export class SendMessageDto {
   })
   @IsOptional()
   @IsString()
+  @MaxLength(MAX_TITLE_LENGTH)
   title?: string;
 
   @ApiPropertyOptional({
@@ -32,5 +50,30 @@ export class SendMessageDto {
   })
   @IsOptional()
   @IsString()
+  @MaxLength(MAX_IDENTIFIER_LENGTH)
   traceId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Optional top-K candidate chunks to retrieve and rank',
+    example: 5,
+    minimum: 1,
+    maximum: MAX_TOP_K,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(MAX_TOP_K)
+  topK?: number;
+
+  @ApiPropertyOptional({
+    description: 'Optional minimum similarity threshold filter',
+    example: 0.5,
+    minimum: 0,
+    maximum: 1,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  similarityThreshold?: number;
 }

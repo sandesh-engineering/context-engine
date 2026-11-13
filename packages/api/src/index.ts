@@ -9,6 +9,7 @@ export * from './client';
 export * from './documents';
 export * from './conversations';
 export * from './chat';
+export * from './errors';
 
 export class KnowledgeEngineApi {
   public readonly client: ApiClient;
@@ -20,11 +21,7 @@ export class KnowledgeEngineApi {
     this.client = new ApiClient(config);
     this.documents = new DocumentsApi(this.client.http);
     this.conversations = new ConversationsApi(this.client.http);
-    this.chat = new ChatApi(this.client.http);
-  }
-
-  setTenantId(tenantId: string): void {
-    this.client.setTenantId(tenantId);
+    this.chat = new ChatApi(this.client.http, () => config.baseURL);
   }
 }
 

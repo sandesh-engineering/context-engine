@@ -1,11 +1,11 @@
 export interface ApiClientConfig {
   baseURL: string;
-  tenantId?: string;
   timeoutMs?: number;
   headers?: Record<string, string>;
 }
 
-export type IngestionStatus = 'PENDING' | 'AVAILABLE' | 'FAILED' | 'PROCESSING' | 'CANCELLED' | 'RUNNING';
+/** Mirrors the backend's IngestionJobStatus enum. */
+export type IngestionStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 
 export interface IngestionJob {
   id: string;
@@ -16,6 +16,8 @@ export interface IngestionJob {
   status: IngestionStatus | string;
   createdAt: string;
   byteSize?: number;
+  /** Reason of the last failed attempt (FAILED jobs only). */
+  errorMessage?: string;
 }
 
 export interface DocumentUploadResponse {
@@ -30,21 +32,20 @@ export interface DocumentUploadResponse {
     sha256Digest: string;
     byteSize: number;
     createdAt: string;
+    /** True when identical bytes were already uploaded; the existing document is returned. */
+    duplicate?: boolean;
   };
 }
 
-export interface ImportUrlRequest {
-  sourceUrl: string;
+export interface CitationMetadata {
+  chunkId: string;
+  versionId?: string;
   documentTitle?: string;
-  expectedChecksumSha256?: string;
-}
-
-export interface ImportJobResponse {
-  importId: string;
-  documentId: string;
-  versionId: string;
-  status: IngestionStatus;
-  createdAt: string;
+  chunkIndex?: number;
+  headingPath?: string;
+  pageStart?: number;
+  similarity?: number;
+  snippet?: string;
 }
 
 export interface Conversation {
@@ -53,6 +54,7 @@ export interface Conversation {
   createdAt: string;
   updatedAt: string;
   lastMessageSnippet?: string;
+  messages?: ChatMessage[];
 }
 
 export interface ChatMessage {
@@ -61,8 +63,10 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   createdAt: string;
+  citations?: CitationMetadata[];
+  insufficientEvidence?: boolean;
   sources?: Array<{
-    documentId: string;
+    documentId?: string;
     documentTitle?: string;
     snippet: string;
     score?: number;
@@ -78,11 +82,20 @@ export interface PaginatedMessagesResponse {
 export interface SendMessageRequest {
   conversationId?: string;
   message: string;
+  userId?: string;
+  title?: string;
+  topK?: number;
+  similarityThreshold?: number;
   stream?: boolean;
+  /** Called once, when the server reports the conversation id (immediately for existing ones). */
+  onConversationId?: (conversationId: string) => void;
   onToken?: (token: string) => void;
+  onCitation?: (citations: CitationMetadata[]) => void;
 }
 
 export interface SendMessageResponse {
   conversationId: string;
   message: ChatMessage;
+  citations?: CitationMetadata[];
+  insufficientEvidence?: boolean;
 }

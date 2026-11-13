@@ -20,7 +20,7 @@ import {
   type IEmbeddingProvider,
 } from '../embeddings/interfaces/embedding-provider.interface';
 import { OutboxMessagePayload } from '../messaging/interfaces/message-publisher.interface';
-import { IngestionJobStage } from '../common/enums';
+import { IngestionJobStage, IngestionJobStatus } from '../common/enums';
 import { AppTracer, SemanticAttributes } from '../../common/telemetry';
 import { StructuredLogger, LogEvents } from '../../common/logger';
 
@@ -92,10 +92,9 @@ export class SqsEmbeddingPollerService implements OnModuleInit, OnModuleDestroy 
   }
 
   onModuleInit(): void {
+    /* Only the worker process consumes the queue; EMBEDDING_WORKER_ENABLED=false turns this consumer off there */
     const embeddingWorkerEnabled =
-      this.configService.get<string>('EMBEDDING_WORKER_ENABLED') === 'true' ||
-      this.appConfig.workerEnabled ||
-      process.env.WORKER_ENABLED === 'true';
+      this.appConfig.workerEnabled && this.appConfig.embeddingWorkerEnabled;
 
     if (embeddingWorkerEnabled) {
       this.startPoller();
@@ -285,9 +284,20 @@ export class SqsEmbeddingPollerService implements OnModuleInit, OnModuleDestroy 
                 ),
             );
 
+            /* One non-empty vector per chunk, or the whole batch is retried */
+            const vectors = embeddingResult.embeddings;
+            if (
+              vectors.length !== unembeddedChunks.length ||
+              vectors.some((vector) => !Array.isArray(vector) || vector.length === 0)
+            ) {
+              throw new Error(
+                `Embedding provider returned ${vectors.length} usable vectors for ${unembeddedChunks.length} chunks`,
+              );
+            }
+
             const chunkEmbeddings = unembeddedChunks.map((chunk, idx) => ({
               chunkId: chunk.id,
-              embedding: embeddingResult.embeddings[idx] || [],
+              embedding: vectors[idx]!,
             }));
 
             // Sub-span: embedding.persist
@@ -328,6 +338,9 @@ export class SqsEmbeddingPollerService implements OnModuleInit, OnModuleDestroy 
             jobId,
             messageId: sqsMessage.MessageId,
           });
+          /* Show the failure on the job. The message stays in the queue: a successful redelivery
+             marks the job COMPLETED again, and SQS moves it to the DLQ after maxReceiveCount. */
+          await this.markJobFailedSafely(versionId, jobId, error);
           throw error;
         }
       },
@@ -343,16 +356,52 @@ export class SqsEmbeddingPollerService implements OnModuleInit, OnModuleDestroy 
   ): Promise<void> {
     const stats = await this.chunksRepository.countChunkStats(versionId);
 
+    // If jobId wasn't provided in the payload, look it up by versionId
+    let effectiveJobId = jobId;
+    if (!effectiveJobId) {
+      const job = await this.jobsRepository.findJobByVersionId(versionId);
+      if (job) {
+        effectiveJobId = job.id;
+      }
+    }
+
     this.logger.logEvent(LogEvents.EMBEDDING_PERSIST_COMPLETED, {
       versionId,
-      jobId,
+      jobId: effectiveJobId,
       totalChunks: stats.total,
       embeddedChunks: stats.embedded,
     });
 
-    if (jobId && stats.total > 0 && stats.embedded === stats.total) {
-      await this.jobsRepository.updateJobStage(jobId, IngestionJobStage.INDEXING);
-      await this.jobsRepository.markJobCompleted(jobId);
+    if (effectiveJobId && stats.total > 0 && stats.embedded === stats.total) {
+      await this.jobsRepository.updateJobStage(effectiveJobId, IngestionJobStage.INDEXING);
+      await this.jobsRepository.markJobCompleted(effectiveJobId);
+      this.logger.logEvent(LogEvents.INGESTION_INTAKE_COMPLETED, {
+        jobId: effectiveJobId,
+        versionId,
+        status: IngestionJobStatus.COMPLETED,
+      });
+    }
+  }
+
+  /**
+   * Marks the version's job FAILED without masking the original embedding error.
+   */
+  private async markJobFailedSafely(
+    versionId: string,
+    jobId: string | undefined,
+    error: unknown,
+  ): Promise<void> {
+    try {
+      const effectiveJobId =
+        jobId || (await this.jobsRepository.findJobByVersionId(versionId))?.id;
+      if (effectiveJobId) {
+        await this.jobsRepository.markJobFailed(
+          effectiveJobId,
+          `Embedding failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    } catch (markError) {
+      this.logger.logError('embedding.job.mark_failed_error', markError, { versionId, jobId });
     }
   }
 

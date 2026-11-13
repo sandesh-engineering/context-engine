@@ -4,6 +4,9 @@ export class InitialMigration1790003764705 implements MigrationInterface {
     name = 'InitialMigration1790003764705'
 
     public async up(queryRunner: QueryRunner): Promise<void> {
+        /* Needed by uuid_generate_v4() defaults and vector(768) columns; no-ops where they already exist */
+        await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
+        await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS "vector"`);
         await queryRunner.query(`CREATE TYPE "public"."ingestion_jobs_status_enum" AS ENUM('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED')`);
         await queryRunner.query(`CREATE TYPE "public"."ingestion_jobs_stage_enum" AS ENUM('DOWNLOADING', 'UPLOADING', 'VERIFYING', 'SOURCE_READY', 'PARSING', 'CHUNKING', 'EMBEDDING', 'INDEXING')`);
         await queryRunner.query(`CREATE TABLE "ingestion_jobs" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "version_id" uuid NOT NULL, "status" "public"."ingestion_jobs_status_enum" NOT NULL DEFAULT 'PENDING', "stage" "public"."ingestion_jobs_stage_enum" NOT NULL DEFAULT 'SOURCE_READY', "attempt_count" integer NOT NULL DEFAULT '0', "error_message" text, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "REL_a6f6ffb2ecec3947e12ad997be" UNIQUE ("version_id"), CONSTRAINT "PK_78a3cba789582043cfc8ba82edd" PRIMARY KEY ("id"))`);

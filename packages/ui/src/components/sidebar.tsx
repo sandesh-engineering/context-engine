@@ -1,5 +1,7 @@
 "use client";
 import * as React from "react";
+import { useRender } from "@base-ui/react/use-render";
+import { mergeProps } from "@base-ui/react/merge-props";
 import { PanelLeftIcon } from "lucide-react";
 import { cn } from "../lib/utils";
 
@@ -90,7 +92,7 @@ export function Sidebar({
       data-slot="sidebar"
       data-expanded={expanded}
       className={cn(
-        "hidden md:flex md:flex-col shrink-0 border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width,opacity] duration-200 ease-in-out overflow-hidden",
+        "sticky top-0 hidden h-screen shrink-0 overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width,opacity] duration-200 ease-out md:flex md:flex-col",
         expanded ? "w-64 opacity-100" : "w-0 opacity-0 border-none pointer-events-none",
         className
       )}
@@ -110,7 +112,7 @@ export function SidebarHeader({
   return (
     <header
       data-slot="sidebar-header"
-      className={cn("flex h-14 items-center px-4 border-b border-sidebar-border gap-2", className)}
+      className={cn("flex h-14 shrink-0 items-center gap-2 px-3", className)}
       {...props}
     />
   );
@@ -124,7 +126,7 @@ export function SidebarContent({
     <div
       data-slot="sidebar-content"
       className={cn(
-        "flex flex-1 flex-col gap-2 overflow-y-auto overflow-x-hidden p-3",
+        "flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overflow-x-hidden px-3 py-2",
         className
       )}
       {...props}
@@ -155,7 +157,7 @@ export function SidebarGroupLabel({
     <div
       data-slot="sidebar-group-label"
       className={cn(
-        "px-2 py-1 text-xs font-semibold text-sidebar-foreground/70 uppercase tracking-wider",
+        "flex h-7 items-center px-2 text-xs font-medium text-sidebar-foreground/60",
         className
       )}
       {...props}
@@ -183,7 +185,7 @@ export function SidebarMenu({
   return (
     <ul
       data-slot="sidebar-menu"
-      className={cn("flex flex-col gap-1 list-none p-0 m-0", className)}
+      className={cn("m-0 flex list-none flex-col gap-0.5 p-0", className)}
       {...props}
     />
   );
@@ -202,35 +204,40 @@ export function SidebarMenuItem({
   );
 }
 
-interface SidebarMenuButtonProps extends React.ComponentProps<"button"> {
+type SidebarMenuButtonProps = useRender.ComponentProps<"button"> & {
   isActive?: boolean;
-  tooltip?: string;
-}
+};
 
 export function SidebarMenuButton({
   className,
   isActive = false,
-  children,
+  render,
   ...props
 }: SidebarMenuButtonProps) {
-  return (
-    <button
-      type="button"
-      data-slot="sidebar-menu-button"
-      data-active={isActive}
-      className={cn(
-        "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-sidebar-foreground",
-        isActive
-          ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold shadow-xs transition-none"
-          : "hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground transition-colors duration-100",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
-        className
-      )}
-      {...props}
-    >
-      {children}
-    </button>
-  );
+  const slotProps = {
+    "data-slot": "sidebar-menu-button",
+    "aria-current": isActive ? ("page" as const) : undefined,
+  };
+
+  return useRender({
+    defaultTagName: "button",
+    render,
+    state: { active: isActive },
+    props: mergeProps<"button">(
+      slotProps,
+      {
+        className: cn(
+          "flex h-8 w-full items-center gap-2.5 rounded-md px-2 text-left text-[13px] font-medium text-sidebar-foreground outline-none transition-colors duration-100",
+          "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+          "data-active:bg-sidebar-accent data-active:text-sidebar-accent-foreground",
+          "focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+          "[&>span]:truncate [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg]:text-sidebar-foreground/70 data-active:[&_svg]:text-sidebar-accent-foreground",
+          className
+        ),
+      },
+      props
+    ),
+  });
 }
 
 export function SidebarFooter({
@@ -240,7 +247,7 @@ export function SidebarFooter({
   return (
     <footer
       data-slot="sidebar-footer"
-      className={cn("flex items-center p-3 border-t border-sidebar-border gap-2", className)}
+      className={cn("flex shrink-0 items-center gap-2 p-3", className)}
       {...props}
     />
   );
@@ -258,7 +265,7 @@ export function SidebarTrigger({
       aria-label="Toggle Sidebar"
       onClick={toggleSidebar}
       className={cn(
-        "inline-flex size-8 items-center justify-center rounded-md text-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
         className
       )}
       {...props}

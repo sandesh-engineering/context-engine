@@ -3,6 +3,7 @@
 import * as React from "react";
 import { ArrowDownIcon, Loader2Icon } from "lucide-react";
 import { cn } from "../lib/utils";
+import { Button } from "./button";
 
 export interface MessageScrollerProps {
   children: React.ReactNode;
@@ -94,7 +95,7 @@ export function MessageScroller({
         role="log"
         aria-live="polite"
         className={cn(
-          "flex h-full w-full flex-col overflow-y-auto px-4 py-4 scroll-smooth",
+          "flex h-full w-full flex-col overflow-y-auto pt-8 pb-10",
           className
         )}
       >
@@ -102,28 +103,29 @@ export function MessageScroller({
         <div ref={topSentinelRef} className="h-1 w-full shrink-0" />
 
         {isLoadingMore && (
-          <div className="flex w-full items-center justify-center py-2 text-muted-foreground text-xs gap-2">
+          <div className="flex w-full items-center justify-center gap-2 pb-6 text-xs text-muted-foreground">
             <Loader2Icon className="size-3.5 animate-spin" />
-            <span>Loading previous messages...</span>
+            <span>Loading earlier messages...</span>
           </div>
         )}
 
         {/* Message stream */}
-        <div className="flex flex-col gap-2">{children}</div>
+        <div className="flex flex-col gap-8">{children}</div>
 
         {/* Bottom Anchor */}
         <div ref={bottomRef} className="h-1 w-full shrink-0" />
       </div>
 
       {showScrollBottom && (
-        <button
-          type="button"
+        <Button
+          variant="outline"
+          size="icon-sm"
           onClick={() => scrollToBottom("smooth")}
           aria-label="Scroll to latest messages"
-          className="absolute bottom-4 right-6 flex size-9 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="absolute right-4 bottom-4 rounded-full bg-background shadow-md animate-in fade-in-0 zoom-in-95"
         >
-          <ArrowDownIcon className="size-4" />
-        </button>
+          <ArrowDownIcon />
+        </Button>
       )}
     </div>
   );

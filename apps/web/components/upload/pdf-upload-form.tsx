@@ -4,7 +4,9 @@ import * as React from "react";
 import { FileDropzone } from "@repo/ui/components/file-dropzone";
 import { Button } from "@repo/ui/components/button";
 import { Progress } from "@repo/ui/components/progress";
-import { CheckCircle2Icon, AlertCircleIcon, Loader2Icon, ArrowUpRightIcon } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@repo/ui/components/alert";
+import { CheckCircle2Icon, AlertCircleIcon, Loader2Icon, ArrowUpIcon } from "lucide-react";
+import { getApiErrorMessage } from "@repo/api";
 import { api } from "../../lib/api-client";
 
 export interface PdfUploadFormProps {
@@ -57,10 +59,9 @@ export function PdfUploadForm({ onSuccess }: PdfUploadFormProps) {
     } catch (err: unknown) {
       console.error("Upload failed:", err);
       setStatus("error");
+      /* Shows the backend's reason, e.g. "Only valid PDF documents are allowed" */
       setErrorMessage(
-        err instanceof Error
-          ? err.message
-          : "Failed to upload document. Please verify network and backend service."
+        getApiErrorMessage(err, "Failed to upload document. Please verify network and backend service.")
       );
     }
   };
@@ -74,72 +75,63 @@ export function PdfUploadForm({ onSuccess }: PdfUploadFormProps) {
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4">
       <FileDropzone
         selectedFile={file}
         onFileSelect={handleFileSelect}
         onFileRemove={resetForm}
         disabled={status === "uploading"}
-        errorMessage={errorMessage}
+        errorMessage={status === "error" ? null : errorMessage}
         onValidationError={handleValidationError}
       />
 
       {status === "uploading" && (
-        <div className="flex flex-col gap-3 rounded-xl border border-border bg-muted/20 p-5">
-          <div className="flex items-center justify-between text-xs">
-            <span className="font-semibold text-foreground flex items-center gap-2">
-              <Loader2Icon className="size-4 animate-spin text-primary" />
-              Uploading & Streaming Document to Storage...
+        <div className="flex flex-col gap-2.5 px-0.5" aria-live="polite">
+          <div className="flex items-center justify-between text-[13px]">
+            <span className="flex items-center gap-2 font-medium text-foreground">
+              <Loader2Icon className="size-3.5 animate-spin text-muted-foreground" />
+              Uploading to storage
             </span>
-            <span className="text-muted-foreground font-mono font-semibold">{progress}%</span>
+            <span className="font-mono text-xs text-muted-foreground tabular-nums">{progress}%</span>
           </div>
-          <Progress value={progress} max={100} />
+          <Progress value={progress} max={100} className="h-1.5" />
         </div>
       )}
 
       {status === "success" && (
-        <div className="flex items-start gap-4 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-5 text-emerald-800 dark:text-emerald-300">
-          <CheckCircle2Icon className="size-5 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
-          <div className="flex flex-col gap-1.5 text-xs">
-            <span className="font-semibold text-sm">Upload Successful</span>
-            <p className="text-emerald-700/90 dark:text-emerald-300/90 leading-relaxed">
-              Document has been securely saved and queued for background text extraction & vector embeddings.
-            </p>
-            <div className="flex items-center gap-2 mt-1">
-              <span className="font-mono text-[11px] text-muted-foreground">ID: {documentId}</span>
-              <span>·</span>
-              <button
-                type="button"
-                onClick={resetForm}
-                className="font-semibold text-emerald-700 dark:text-emerald-300 underline underline-offset-2 hover:opacity-80"
-              >
+        <Alert variant="success">
+          <CheckCircle2Icon />
+          <AlertTitle>Upload complete</AlertTitle>
+          <AlertDescription>
+            <p>The document is queued for text extraction and embedding. Track its progress below.</p>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="font-mono text-[11px] text-muted-foreground">ID {documentId}</span>
+              <Button variant="link" size="xs" className="h-auto px-0" onClick={resetForm}>
                 Upload another PDF
-              </button>
+              </Button>
             </div>
-          </div>
-        </div>
+          </AlertDescription>
+        </Alert>
       )}
 
       {status === "error" && errorMessage && (
-        <div className="flex items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/10 p-5 text-destructive">
-          <AlertCircleIcon className="size-5 shrink-0 mt-0.5" />
-          <div className="flex flex-col gap-1 text-xs">
-            <span className="font-semibold text-sm">Upload Failed</span>
-            <span>{errorMessage}</span>
-          </div>
-        </div>
+        <Alert variant="destructive">
+          <AlertCircleIcon />
+          <AlertTitle>Upload failed</AlertTitle>
+          <AlertDescription>{errorMessage}</AlertDescription>
+        </Alert>
       )}
 
-      {file && status === "idle" && (
-        <div className="flex justify-end pt-2">
+      {file && (status === "idle" || status === "error") && (
+        <div className="flex justify-end">
           <Button
             onClick={handleUpload}
             size="lg"
-            className="w-full sm:w-auto font-semibold gap-2 px-6 h-10 shadow-xs"
+            className="w-full px-4 sm:w-auto"
             data-testid="start-upload-button"
           >
-            <span>Upload Document</span>
-            <ArrowUpRightIcon className="size-4" />
+            <ArrowUpIcon data-icon="inline-start" />
+            {status === "error" ? "Retry upload" : "Upload document"}
           </Button>
         </div>
       )}

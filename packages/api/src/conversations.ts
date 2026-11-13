@@ -5,17 +5,34 @@ export class ConversationsApi {
   constructor(private readonly http: AxiosInstance) {}
 
   /**
-   * Get list of conversations for tenant.
+   * Get list of conversations.
    */
-  async getConversations(options?: { signal?: AbortSignal }): Promise<Conversation[]> {
-    try {
-      const response = await this.http.get<Conversation[]>('/conversations', {
-        signal: options?.signal,
-      });
-      return response.data;
-    } catch {
-      return [];
+  async getConversations(options?: {
+    page?: number;
+    limit?: number;
+    userId?: string;
+    signal?: AbortSignal;
+  }): Promise<Conversation[]> {
+    /* Errors propagate so callers can tell "no conversations" from "backend unreachable" */
+    const response = await this.http.get<any>('/conversations', {
+      params: {
+        page: options?.page,
+        limit: options?.limit,
+        userId: options?.userId,
+      },
+      signal: options?.signal,
+    });
+    const data = response.data;
+    if (Array.isArray(data)) {
+      return data;
     }
+    if (data && Array.isArray(data.data)) {
+      return data.data;
+    }
+    if (data && Array.isArray(data.items)) {
+      return data.items;
+    }
+    return [];
   }
 
   /**
@@ -23,34 +40,60 @@ export class ConversationsApi {
    */
   async createConversation(
     title?: string,
-    options?: { signal?: AbortSignal },
+    options?: { signal?: AbortSignal; userId?: string },
   ): Promise<Conversation> {
     const response = await this.http.post<Conversation>(
       '/conversations',
-      { title: title || 'New Conversation' },
+      {
+        title: title || 'New Conversation',
+        userId: options?.userId,
+      },
       { signal: options?.signal },
     );
     return response.data;
   }
 
   /**
-   * Get paginated messages for a conversation on demand (beforeCursor for upward scroll).
+   * Get single conversation details with its messages.
+   */
+  async getConversation(
+    conversationId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<Conversation> {
+    const response = await this.http.get<any>(`/conversations/${conversationId}`, {
+      signal: options?.signal,
+    });
+    const conv = response.data;
+    if (conv && Array.isArray(conv.messages)) {
+      conv.messages = conv.messages.map((m: any) => ({
+        ...m,
+        role: String(m.role || 'assistant').toLowerCase() as 'user' | 'assistant' | 'system',
+      }));
+    }
+    return conv;
+  }
+
+  /**
+   * Get paginated messages for a conversation.
    */
   async getMessages(
     conversationId: string,
     params?: { beforeCursor?: string; limit?: number },
     options?: { signal?: AbortSignal },
   ): Promise<PaginatedMessagesResponse> {
-    const response = await this.http.get<PaginatedMessagesResponse>(
-      `/conversations/${conversationId}/messages`,
-      {
-        params: {
-          beforeCursor: params?.beforeCursor,
-          limit: params?.limit || 20,
-        },
-        signal: options?.signal,
-      },
-    );
-    return response.data;
+    try {
+      const conv = await this.getConversation(conversationId, options);
+      const rawMessages: ChatMessage[] = conv.messages || [];
+
+      return {
+        messages: rawMessages,
+        hasMore: false,
+      };
+    } catch {
+      return {
+        messages: [],
+        hasMore: false,
+      };
+    }
   }
 }

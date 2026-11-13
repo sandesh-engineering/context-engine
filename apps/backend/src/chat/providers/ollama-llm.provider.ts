@@ -23,6 +23,7 @@ export class OllamaLlmProvider implements ILlmProvider {
   private readonly modelName: string;
   private readonly circuitBreaker: CircuitBreaker;
   private readonly retryPolicy: RetryPolicy;
+  private readonly timeoutMs: number;
 
   constructor(
     private readonly appConfig: AppConfigService,
@@ -37,6 +38,8 @@ export class OllamaLlmProvider implements ILlmProvider {
       options?.modelName ||
       this.appConfig.ollamaModel ||
       'gemma:2b';
+
+    this.timeoutMs = this.appConfig.ollamaTimeoutMs || 120000;
 
     this.circuitBreaker =
       options?.circuitBreaker ||
@@ -85,12 +88,24 @@ export class OllamaLlmProvider implements ILlmProvider {
         bodyPayload.context = options.contextState;
       }
 
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(bodyPayload),
-        signal,
-      });
+      /* Bound the wait for the response headers (model load + first token); once streaming starts,
+         only the client's signal can stop it, so long answers are not cut off */
+      const headerTimeout = new AbortController();
+      const timer = setTimeout(
+        () => headerTimeout.abort(new Error(`Ollama did not respond within ${this.timeoutMs} ms`)),
+        this.timeoutMs,
+      );
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(bodyPayload),
+          signal: signal ? AbortSignal.any([signal, headerTimeout.signal]) : headerTimeout.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
 
       if (!response.ok) {
         const errorText = await response.text();

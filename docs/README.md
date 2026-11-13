@@ -71,6 +71,18 @@ Roadmap / Open Questions
 
 ---
 
+## Known Discrepancies (V1)
+
+Recorded per the discrepancy policy above; the code is the current source of truth.
+
+- **Deployment:** docs describe ECS/Fargate. V1 runs Docker Compose on a single EC2 host, deployed by `.github/workflows/ci-cd.yml`.
+- **Outbox tables:** docs mention one `outbox_messages` table. The code has two, `ingestion_outbox` and `embedding_outbox`, one per queue.
+- **URL / S3 import (ADR-006):** accepted but not implemented. There is no `POST /imports`, and the web page shows "coming soon".
+- **Idempotency-Key:** not implemented. Identical re-uploads are deduplicated by SHA-256 instead.
+- **Formats (FR-001):** only PDF is accepted. Markdown and plain text are not.
+- **Job states (FR-003):** the code splits `status` (PENDING/PROCESSING/COMPLETED/FAILED) from `stage` (SOURCE_READY/PARSING/CHUNKING/EMBEDDING/INDEXING).
+- **Authentication:** none yet. Every API route is open to whoever can reach it.
+
 ## Related Documentation
 
 - [[product/context]]

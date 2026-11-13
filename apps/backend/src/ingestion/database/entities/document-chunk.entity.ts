@@ -11,6 +11,9 @@ import { DocumentVersionEntity } from './document-version.entity';
 
 @Entity('document_chunks')
 @Index(['versionId', 'chunkIndex'], { unique: true })
+/* Expression indexes managed by hand-written migrations; synchronize: false keeps migration:generate from dropping them */
+@Index('IDX_document_chunks_content_tsv', { synchronize: false })
+@Index('idx_document_chunks_embedding_hnsw', { synchronize: false })
 export class DocumentChunkEntity {
   /* Database-generated primary identifier for chunk */
   @PrimaryGeneratedColumn('uuid')

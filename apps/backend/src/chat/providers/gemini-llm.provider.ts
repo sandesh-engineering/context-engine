@@ -92,6 +92,11 @@ export class GeminiLlmProvider implements ILlmProvider {
       config.systemInstruction = systemInstructions;
     }
 
+    /* Lets the SDK cancel the in-flight HTTP request when the client disconnects */
+    if (signal) {
+      config.abortSignal = signal;
+    }
+
     const streamFetcher = async () => {
       if (signal?.aborted) {
         throw new Error('Request aborted prior to Gemini API call');

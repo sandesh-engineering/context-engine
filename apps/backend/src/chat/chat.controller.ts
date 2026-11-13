@@ -6,10 +6,13 @@ import {
   Query,
   Body,
   Sse,
-  Req,
+  SseSignal,
   HttpStatus,
   MessageEvent,
+  ParseUUIDPipe,
+  BadRequestException,
 } from '@nestjs/common';
+import { isUUID } from 'class-validator';
 import {
   ApiTags,
   ApiOperation,
@@ -17,10 +20,9 @@ import {
   ApiParam,
   ApiQuery,
 } from '@nestjs/swagger';
-import { type Request } from 'express';
 import { Observable } from 'rxjs';
 import { ChatService } from './services/chat.service';
-import { CreateConversationDto, SendMessageDto } from './dto';
+import { CreateConversationDto, SendMessageDto, GetConversationsDto } from './dto';
 
 @ApiTags('Conversations')
 @Controller('conversations')
@@ -44,24 +46,19 @@ export class ChatController {
   }
 
   /**
-   * Retrieves all conversation sessions.
+   * Retrieves paginated conversation sessions.
    */
   @Get()
   @ApiOperation({
-    summary: 'List all conversations',
-    description: 'Retrieves all conversation sessions, optionally filtered by user ID',
-  })
-  @ApiQuery({
-    name: 'userId',
-    required: false,
-    description: 'Optional user identifier filter',
+    summary: 'List paginated conversations',
+    description: 'Retrieves paginated conversation sessions ordered by latest activity, optionally filtered by user ID',
   })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'List of conversation sessions ordered by latest activity',
+    description: 'Paginated list of conversation sessions with metadata',
   })
-  async getAllConversations(@Query('userId') userId?: string) {
-    return this.chatService.getAllConversations(userId);
+  async getAllConversations(@Query() query: GetConversationsDto) {
+    return this.chatService.getAllConversations(query);
   }
 
   /**
@@ -84,7 +81,7 @@ export class ChatController {
     status: HttpStatus.NOT_FOUND,
     description: 'Conversation session not found',
   })
-  async getConversation(@Param('id') id: string) {
+  async getConversation(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.chatService.getConversation(id);
   }
 
@@ -103,20 +100,15 @@ export class ChatController {
   })
   async sendFreshMessageStream(
     @Body() dto: SendMessageDto,
-    @Req() req: Request,
+    @SseSignal() signal: AbortSignal,
   ): Promise<Observable<MessageEvent>> {
-    const abortController = new AbortController();
-    if (req && typeof req.on === 'function') {
-      req.on('close', () => {
-        abortController.abort();
-      });
-    }
-
     return this.chatService.sendMessageStream({
       userQuery: dto.query,
       userId: dto.userId,
       title: dto.title,
-      signal: abortController.signal,
+      topK: dto.topK,
+      similarityThreshold: dto.similarityThreshold,
+      signal,
       traceId: dto.traceId,
     });
   }
@@ -145,15 +137,11 @@ export class ChatController {
   async sendMessageStream(
     @Param('id') id: string,
     @Body() dto: SendMessageDto,
-    @Req() req: Request,
+    @SseSignal() signal: AbortSignal,
   ): Promise<Observable<MessageEvent>> {
-    const abortController = new AbortController();
-    if (req && typeof req.on === 'function') {
-      req.on('close', () => {
-        abortController.abort();
-      });
+    if (id !== 'new' && !isUUID(id)) {
+      throw new BadRequestException('Conversation id must be a UUID or "new"');
     }
-
     const conversationId = id === 'new' ? undefined : id;
 
     return this.chatService.sendMessageStream({
@@ -161,7 +149,9 @@ export class ChatController {
       userQuery: dto.query,
       userId: dto.userId,
       title: dto.title,
-      signal: abortController.signal,
+      topK: dto.topK,
+      similarityThreshold: dto.similarityThreshold,
+      signal,
       traceId: dto.traceId,
     });
   }

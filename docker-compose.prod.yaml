@@ -1,0 +1,49 @@
+# Production stack for one EC2 host (copied to ~/knowledge-engine on the server).
+#
+# Server layout:
+#   ~/knowledge-engine/
+#     docker-compose.prod.yaml   <- this file
+#     .env                       <- DOCKERHUB_USERNAME + *_TAG values. deploy.yml rewrites the tags of
+#                                   rebuilt images; images that weren't rebuilt keep their tag.
+#     env/backend.env            <- runtime config for backend + worker (start from apps/backend/.env.example)
+#     env/web.env                <- optional; only server-side vars. NEXT_PUBLIC_* are baked in at build time.
+#
+# Postgres (RDS), S3 and SQS live outside this file and are configured through env/backend.env.
+# Image health checks (backend: /metrics, web: /) come from the Dockerfiles, so
+# `docker compose up -d --wait` fails if a container never becomes healthy.
+
+name: knowledge-engine
+
+x-defaults: &defaults
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+services:
+  backend:
+    <<: *defaults
+    image: ${DOCKERHUB_USERNAME:?set DOCKERHUB_USERNAME in .env}/knowledge-engine-backend:${BACKEND_TAG:-latest}
+    env_file: env/backend.env
+    environment:
+      PORT: 5000 # must match the image's EXPOSE/HEALTHCHECK, whatever backend.env says
+    ports:
+      - "5000:5000"
+
+  worker:
+    <<: *defaults
+    image: ${DOCKERHUB_USERNAME:?set DOCKERHUB_USERNAME in .env}/knowledge-engine-worker:${WORKER_TAG:-latest}
+    env_file: env/backend.env
+    # Let in-flight SQS messages finish; main-worker.ts handles SIGTERM.
+    stop_grace_period: 30s
+
+  web:
+    <<: *defaults
+    image: ${DOCKERHUB_USERNAME:?set DOCKERHUB_USERNAME in .env}/knowledge-engine-web:${WEB_TAG:-latest}
+    env_file:
+      - path: env/web.env
+        required: false
+    ports:
+      - "3000:3000"

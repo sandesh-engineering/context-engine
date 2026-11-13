@@ -1,0 +1,88 @@
+name: Quality CI
+
+on:
+  workflow_call:
+    inputs:
+      since:
+        description: Git ref to compare against (e.g. last deployed SHA). Empty = treat everything as changed.
+        type: string
+        default: ""
+    outputs:
+      images:
+        description: JSON list of images to build (matrix for build-image.yml).
+        value: ${{ jobs.quality.outputs.images }}
+      apps:
+        description: Space-separated image names to deploy, e.g. "backend worker".
+        value: ${{ jobs.quality.outputs.apps }}
+
+jobs:
+  quality:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash # explicit bash = -eo pipefail, so a failing command inside a pipe fails the step
+    outputs:
+      images: ${{ steps.affected.outputs.images }}
+      apps: ${{ steps.affected.outputs.apps }}
+    env:
+      TURBO_SCM_BASE: ${{ inputs.since }}
+      # --affected only when a base is given; otherwise run everything.
+      AFFECTED: ${{ inputs.since && '--affected' || '' }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # turbo --affected needs history to diff against TURBO_SCM_BASE
+
+      - name: Validate `since`
+        if: inputs.since != ''
+        run: |
+          if ! git rev-parse --verify --quiet "${TURBO_SCM_BASE}^{commit}" > /dev/null; then
+            echo "::error::since='${TURBO_SCM_BASE}' is not a commit in this repository"
+            exit 1
+          fi
+
+      # pnpm version comes from "packageManager" in package.json.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm exec turbo run lint $AFFECTED
+
+      - name: Type check
+        run: pnpm exec turbo run check-types $AFFECTED
+
+      - name: Tests
+        run: pnpm exec turbo run test $AFFECTED
+
+      - name: Pick images to build
+        id: affected
+        run: |
+          # Every image we ship, and the turbo package whose changes require rebuilding it.
+          all='[
+            {"name": "backend", "package": "backend", "dockerfile": "apps/backend/Dockerfile", "target": "api"},
+            {"name": "worker",  "package": "backend", "dockerfile": "apps/backend/Dockerfile", "target": "worker"},
+            {"name": "web",     "package": "web",     "dockerfile": "apps/web/Dockerfile",     "target": "runner"}
+          ]'
+
+          if [ -n "$AFFECTED" ]; then
+            # Packages in the affected build graph: changed ones, their dependents and their deps.
+            changed=$(pnpm exec turbo run build --affected --dry=json | jq -c '.packages')
+          else
+            changed='["backend", "web"]'
+          fi
+          echo "Affected packages: $changed"
+
+          images=$(jq -c --argjson changed "$changed" \
+            'map(select(.package as $p | any($changed[]; . == $p)))' <<< "$all")
+          echo "images=$images" >> "$GITHUB_OUTPUT"
+          echo "apps=$(jq -r 'map(.name) | join(" ")' <<< "$images")" >> "$GITHUB_OUTPUT"

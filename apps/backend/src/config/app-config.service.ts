@@ -26,10 +26,6 @@ export class AppConfigService {
     return this.config.get('CORS_ORIGIN', { infer: true });
   }
 
-  get defaultDemoTenantId(): string {
-    return this.config.get('DEFAULT_DEMO_TENANT_ID', { infer: true }) ?? 'demo-tenant-001';
-  }
-
   get isProduction(): boolean {
     return this.nodeEnv === 'production';
   }
@@ -111,8 +107,13 @@ export class AppConfigService {
   }
 
   /* Workers & SQS Polling */
+  /**
+   * True only in the worker process: main-worker.ts sets WORKER_ENABLED=true and main.ts sets it
+   * to false before any module loads (see src/process-role/), so a shared env file cannot turn
+   * queue consumers or outbox pollers on inside the API.
+   */
   get workerEnabled(): boolean {
-    return this.config.get('WORKER_ENABLED', { infer: true }) ?? true;
+    return this.config.get('WORKER_ENABLED', { infer: true }) ?? false;
   }
 
   get embeddingWorkerEnabled(): boolean {
@@ -169,7 +170,11 @@ export class AppConfigService {
   }
 
   get outboxBatchSize(): number {
-    return this.config.get('OUTBOX_BATCH_SIZE', { infer: true }) ?? 100;
+    return this.config.get('OUTBOX_BATCH_SIZE', { infer: true }) ?? 10;
+  }
+
+  get outboxPollerEnabled(): boolean {
+    return this.config.get('OUTBOX_POLLER_ENABLED', { infer: true }) ?? true;
   }
 
   get outboxMaxRetries(): number {
@@ -199,7 +204,23 @@ export class AppConfigService {
   }
 
   get ollamaModel(): string {
-    return this.config.get('OLLAMA_MODEL', { infer: true }) ?? 'qwen3:4b';
+    return this.config.get('OLLAMA_MODEL', { infer: true }) ?? 'gemma:2b';
+  }
+
+  get ollamaTimeoutMs(): number {
+    return this.config.get('OLLAMA_TIMEOUT_MS', { infer: true }) ?? 120000;
+  }
+
+  get embeddingProviderType(): Env['EMBEDDING_PROVIDER'] {
+    return this.config.get('EMBEDDING_PROVIDER', { infer: true }) ?? 'ollama';
+  }
+
+  get llmProviderType(): Env['LLM_PROVIDER'] {
+    return this.config.get('LLM_PROVIDER', { infer: true }) ?? 'ollama';
+  }
+
+  get metricsToken(): string | undefined {
+    return this.config.get('METRICS_TOKEN', { infer: true });
   }
 
   get systemPrompt(): string {
@@ -245,4 +266,70 @@ export class AppConfigService {
   get circuitBreakerResetTimeoutMs(): number {
     return this.config.get('CIRCUIT_BREAKER_RESET_TIMEOUT_MS', { infer: true }) ?? 30000;
   }
+
+  /* Neural Cross-Encoder Reranker (Hugging Face TEI / Ollama) */
+  get rerankingEnabled(): boolean {
+    return this.config.get('RERANKING_ENABLED', { infer: true }) ?? false;
+  }
+
+  get rerankerProviderType(): 'tei' | 'ollama' {
+    return this.config.get('RERANKER_PROVIDER_TYPE', { infer: true }) ?? 'tei';
+  }
+
+  get rerankerUrl(): string | undefined {
+    return this.config.get('RERANKER_URL', { infer: true });
+  }
+
+  get rerankerBaseUrl(): string {
+    return (
+      this.config.get('RERANKER_URL', { infer: true }) ??
+      this.config.get('RERANKER_BASE_URL', { infer: true }) ??
+      'http://localhost:8081'
+    );
+  }
+
+  get rerankerEndpointPath(): string {
+    return this.config.get('RERANKER_ENDPOINT_PATH', { infer: true }) ?? '/rerank';
+  }
+
+  get rerankerModelName(): string {
+    return (
+      this.config.get('RERANKER_MODEL_NAME', { infer: true }) ??
+      'cross-encoder/ms-marco-MiniLM-L-6-v2'
+    );
+  }
+
+  get rerankerTimeoutMs(): number {
+    return this.config.get('RERANKER_TIMEOUT_MS', { infer: true }) ?? 15000;
+  }
+
+  get rerankerCandidatesTopK(): number {
+    return this.config.get('RERANKER_CANDIDATES_TOP_K', { infer: true }) ?? 30;
+  }
+
+  get rerankerFinalTopK(): number {
+    return this.config.get('RERANKER_FINAL_TOP_K', { infer: true }) ?? 5;
+  }
+
+  /* Hybrid Search (pgvector + PostgreSQL Full-Text Search + RRF) */
+  get hybridSearchEnabled(): boolean {
+    return this.config.get('HYBRID_SEARCH_ENABLED', { infer: true }) ?? false;
+  }
+
+  get hybridSearchVectorTopK(): number {
+    return this.config.get('HYBRID_SEARCH_VECTOR_TOP_K', { infer: true }) ?? 20;
+  }
+
+  get hybridSearchKeywordTopK(): number {
+    return this.config.get('HYBRID_SEARCH_KEYWORD_TOP_K', { infer: true }) ?? 20;
+  }
+
+  get hybridSearchRrfK(): number {
+    return this.config.get('HYBRID_SEARCH_RRF_K', { infer: true }) ?? 60;
+  }
+
+  get hybridSearchFinalTopK(): number {
+    return this.config.get('HYBRID_SEARCH_FINAL_TOP_K', { infer: true }) ?? 8;
+  }
 }
+

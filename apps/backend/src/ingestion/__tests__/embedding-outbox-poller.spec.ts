@@ -24,9 +24,9 @@ describe('EmbeddingOutboxPollerService Unit Tests', () => {
 
     mockConfigService = {
       get: jest.fn().mockImplementation((key: string) => {
-        if (key === 'OUTBOX_POLL_BATCH_SIZE') return 10;
+        if (key === 'OUTBOX_BATCH_SIZE') return 10;
         if (key === 'OUTBOX_POLL_INTERVAL_MS') return 1000;
-        if (key === 'OUTBOX_POLLER_ENABLED') return 'false';
+        if (key === 'OUTBOX_POLLER_ENABLED') return false;
         if (key === 'OUTBOX_MAX_RETRIES') return 3;
         return undefined;
       }),

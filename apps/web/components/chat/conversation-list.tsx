@@ -1,92 +1,70 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import type { Conversation } from "@repo/api";
-import { PlusIcon, MessageSquareIcon, Loader2Icon } from "lucide-react";
-import { Button } from "@repo/ui/components/button";
-import { cn } from "@repo/ui/lib/utils";
+import {
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from "@repo/ui/components/sidebar";
+import { Skeleton } from "@repo/ui/components/skeleton";
 
 export interface ConversationListProps {
   conversations: Conversation[];
   activeId: string | null;
-  onSelect: (id: string) => void;
-  onNewChat: () => void;
+  onNavigate?: () => void;
   isLoading?: boolean;
-  className?: string;
+  /** Shown instead of the empty-state text when the list could not be loaded. */
+  loadError?: string | null;
 }
 
 export function ConversationList({
   conversations,
   activeId,
-  onSelect,
-  onNewChat,
+  onNavigate,
   isLoading = false,
-  className,
+  loadError = null,
 }: ConversationListProps) {
-  return (
-    <div
-      className={cn(
-        "flex flex-col h-full w-full border-r border-border bg-card/40 p-3 select-none",
-        className
-      )}
-    >
-      <div className="flex items-center justify-between pb-3">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Conversations
-        </h2>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={onNewChat}
-          className="gap-1.5 text-xs h-7 px-2.5"
-          data-testid="new-chat-button"
-        >
-          <PlusIcon className="size-3.5" />
-          <span>New Chat</span>
-        </Button>
+  if (isLoading && conversations.length === 0) {
+    return (
+      <div className="flex flex-col gap-2.5 px-2 py-1.5" aria-label="Loading conversations">
+        {[72, 56, 64].map((w) => (
+          <Skeleton key={w} className="h-3.5" style={{ width: `${w}%` }} />
+        ))}
       </div>
+    );
+  }
 
-      <div className="flex flex-1 flex-col gap-1 overflow-y-auto pr-1">
-        {isLoading && conversations.length === 0 ? (
-          <div className="flex items-center justify-center py-8 text-muted-foreground text-xs gap-2">
-            <Loader2Icon className="size-4 animate-spin" />
-            <span>Loading threads...</span>
-          </div>
-        ) : conversations.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-10 text-center px-2">
-            <MessageSquareIcon className="size-8 text-muted-foreground/40 mb-2" />
-            <p className="text-xs font-medium text-muted-foreground">
-              No conversations yet
-            </p>
-            <p className="text-[11px] text-muted-foreground/70 mt-1">
-              Start a new chat to ask questions
-            </p>
-          </div>
-        ) : (
-          conversations.map((conv) => {
-            const isActive = conv.id === activeId;
-            return (
-              <button
-                key={conv.id}
-                type="button"
-                onClick={() => onSelect(conv.id)}
-                data-active={isActive}
-                className={cn(
-                  "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs font-medium transition-all",
-                  "hover:bg-accent hover:text-accent-foreground",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  isActive
-                    ? "bg-accent text-accent-foreground font-semibold shadow-2xs"
-                    : "text-muted-foreground"
-                )}
-              >
-                <MessageSquareIcon className="size-3.5 shrink-0 opacity-70" />
-                <span className="truncate flex-1">{conv.title || "Untitled Chat"}</span>
-              </button>
-            );
-          })
-        )}
-      </div>
-    </div>
+  if (conversations.length === 0 && loadError) {
+    return (
+      <p className="px-2 py-1 text-xs leading-relaxed text-destructive" role="alert">
+        {loadError}
+      </p>
+    );
+  }
+
+  if (conversations.length === 0) {
+    return (
+      <p className="px-2 py-1 text-xs leading-relaxed text-muted-foreground">
+        Your conversations will appear here.
+      </p>
+    );
+  }
+
+  return (
+    <SidebarMenu>
+      {conversations.map((conv) => (
+        <SidebarMenuItem key={conv.id}>
+          <SidebarMenuButton
+            isActive={conv.id === activeId}
+            render={<Link href={`/chat/${conv.id}`} onClick={onNavigate} />}
+            className="font-normal"
+          >
+            <span>{conv.title || "Untitled chat"}</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      ))}
+    </SidebarMenu>
   );
 }

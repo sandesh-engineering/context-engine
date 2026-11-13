@@ -14,7 +14,7 @@ export class ConversationEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  /* User/Tenant owner identifier */
+  /* Owning user identifier */
   @Column({ name: 'user_id', type: 'varchar', nullable: true })
   userId?: string;
 
@@ -23,11 +23,11 @@ export class ConversationEntity {
   title!: string;
 
   /* External LLM provider history/session ID (e.g. qwen/ollama context ID) */
-  @Column({ name: 'provider_session_id', type: 'varchar', nullable: true })
+  @Column({ name: 'provider_session_id', type: 'varchar', nullable: true, select: false })
   providerSessionId?: string;
 
   /* Raw model token context state for continuing chat turns */
-  @Column({ name: 'context_state', type: 'jsonb', nullable: true })
+  @Column({ name: 'context_state', type: 'jsonb', nullable: true, select: false })
   contextState?: number[];
 
   /* Session creation timestamp */

@@ -1,0 +1,56 @@
+name: CI/CD Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      since:
+        description: Only rebuild/deploy apps changed since this git ref (e.g. last deployed SHA). Empty = everything.
+        type: string
+        default: ""
+      image_tag:
+        description: Rollback/redeploy - deploy this existing tag (a past commit SHA) and skip quality + build.
+        type: string
+        default: ""
+      apps:
+        description: With image_tag only - which images to deploy (each must have been pushed with that tag).
+        type: string
+        default: backend worker web
+
+permissions:
+  contents: read
+
+concurrency:
+  group: knowledge-engine-deployment
+  cancel-in-progress: false
+
+jobs:
+  quality:
+    if: inputs.image_tag == ''
+    uses: ./.github/workflows/quality.yml
+    with:
+      since: ${{ inputs.since }}
+
+  build-and-push:
+    uses: ./.github/workflows/build-image.yml
+    needs: quality
+    if: needs.quality.outputs.images != '[]' # nothing changed -> skip build (and deploy)
+    with:
+      images: ${{ needs.quality.outputs.images }}
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  # deploy:
+  #   uses: ./.github/workflows/deploy.yml
+  #   needs: [quality, build-and-push]
+  #   # Production deploys only from main. !cancelled() lets the job evaluate when quality/build were
+  #   # skipped (rollback); otherwise both must have succeeded.
+  #   if: >-
+  #     !cancelled() && github.ref == 'refs/heads/main' && (
+  #       inputs.image_tag != '' ||
+  #       (needs.quality.result == 'success' && needs.build-and-push.result == 'success')
+  #     )
+  #   with:
+  #     apps: ${{ inputs.image_tag != '' && inputs.apps || needs.quality.outputs.apps }}
+  #     image_tag: ${{ inputs.image_tag }}
+  #   secrets: inherit

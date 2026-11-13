@@ -82,7 +82,7 @@ describe('SqsIngestionPollerService Unit Tests', () => {
 
     await pollerService.processSqsMessage(message);
 
-    expect(mockJobsRepository.claimJobForProcessing).toHaveBeenCalledWith('job-123');
+    expect(mockJobsRepository.claimJobForProcessing).toHaveBeenCalledWith('job-123', 600);
     expect(mockJobsRepository.markJobCompleted).toHaveBeenCalledWith('job-123');
     expect(mockSqsClient.send).toHaveBeenCalledWith(expect.any(DeleteMessageCommand));
   });
@@ -114,10 +114,36 @@ describe('SqsIngestionPollerService Unit Tests', () => {
 
     await pollerService.processSqsMessage(message);
 
-    expect(mockJobsRepository.claimJobForProcessing).toHaveBeenCalledWith('job-dup');
+    expect(mockJobsRepository.claimJobForProcessing).toHaveBeenCalledWith('job-dup', 600);
     expect(mockJobsRepository.markJobCompleted).not.toHaveBeenCalled();
     /* Verify duplicate SQS message is deleted to acknowledge queue */
     expect(mockSqsClient.send).toHaveBeenCalledWith(expect.any(DeleteMessageCommand));
+  });
+
+  it('should keep the message when another worker is still processing the job', async () => {
+    const message = {
+      Body: JSON.stringify({ eventId: 'evt-busy', payload: { jobId: 'job-busy' } }),
+      ReceiptHandle: 'rh-busy',
+    };
+
+    mockJobsRepository.claimJobForProcessing.mockResolvedValue({
+      claimed: false,
+      job: {
+        id: 'job-busy',
+        versionId: 'ver-1',
+        status: IngestionJobStatus.PROCESSING,
+        stage: IngestionJobStage.PARSING,
+        attemptCount: 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        version: {} as any,
+      },
+    });
+
+    await pollerService.processSqsMessage(message);
+
+    /* Left for redelivery so the job is picked up again if that worker crashed */
+    expect(mockSqsClient.send).not.toHaveBeenCalled();
   });
 
   it('should mark job failed and NOT delete SQS message on processing failure', async () => {

@@ -21,6 +21,8 @@ export interface CitationMetadata {
   documentTitle?: string;
   chunkIndex?: number;
   headingPath?: string;
+  /* First page of the cited chunk, when the source format has pages */
+  pageStart?: number;
   similarity?: number;
 }
 

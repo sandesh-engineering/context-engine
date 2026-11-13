@@ -36,6 +36,11 @@ export const dataSourceOptions: DataSourceOptions = {
   ],
   migrations: [__dirname + '/migrations/*{.ts,.js}'],
   subscribers: [],
+  extra: {
+    max: 40,
+    connectionTimeoutMillis: 3000,
+    idleTimeoutMillis: 20000,
+  },
 };
 
 export const AppDataSource = new DataSource(dataSourceOptions);
