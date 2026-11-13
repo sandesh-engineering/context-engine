@@ -6,7 +6,7 @@ import {
   BadRequestException,
   MessageEvent,
 } from '@nestjs/common';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, Not, Repository } from 'typeorm';
 import { Observable, ReplaySubject, Subject } from 'rxjs';
 import { ConversationEntity } from '../entities/conversation.entity';
 import { MessageEntity, MessageRole } from '../entities/message.entity';
@@ -19,6 +19,8 @@ import type { ILlmProvider, MessageHistory } from '../interfaces/llm-provider.in
 import { LLM_PROVIDER } from '../interfaces/llm-provider.interface';
 import { AppTracer, SemanticAttributes } from '../../common/telemetry';
 import { StructuredLogger, LogEvents } from '../../common/logger';
+import { AppConfigService } from '../../config/app-config.service';
+import { selectHistoryWindow } from '../utils/history-window';
 
 import { CitationMetadata } from '../entities/message.entity';
 
@@ -56,6 +58,7 @@ export class ChatService {
     @Inject(LLM_PROVIDER)
     private readonly llmProvider: ILlmProvider,
     private readonly queryValidator: RetrievalQueryValidator,
+    private readonly appConfig: AppConfigService,
     @Optional() convRepo?: Repository<ConversationEntity>,
     @Optional() msgRepo?: Repository<MessageEntity>,
   ) {
@@ -257,7 +260,7 @@ export class ChatService {
         });
 
         try {
-          await this.processStream(params, conversation!, subject);
+          await this.processStream(params, conversation!, userMessage.id, subject);
           span.setAttribute('chat.completed', true);
           this.logger.logEvent(LogEvents.CHAT_REQUEST_COMPLETED, {
             conversationId: conversation!.id,
@@ -292,6 +295,7 @@ export class ChatService {
   private async processStream(
     params: SendMessageParams,
     conversation: ConversationEntity,
+    userMessageId: string,
     subject: Subject<MessageEvent>,
   ): Promise<void> {
     /* Step 2: Trigger candidate retrieval (with cross-encoder reranking if enabled) */
@@ -376,15 +380,22 @@ export class ChatService {
       },
     );
 
-    const existingMessages = await this.messageRepository.find({
-      where: { conversationId: conversation.id },
-      order: { createdAt: 'ASC' },
-    });
+    /* Only a bounded tail of the chat is resent, so long conversations never outgrow the model's
+       context window. The current question is excluded: the assembled prompt already carries it. */
+    const maxMessages = this.appConfig.chatHistoryMaxMessages;
+    const recentMessages =
+      maxMessages > 0
+        ? await this.messageRepository.find({
+            where: { conversationId: conversation.id, id: Not(userMessageId) },
+            order: { createdAt: 'DESC' },
+            take: maxMessages,
+          })
+        : [];
 
-    const history: MessageHistory[] = existingMessages.map((msg) => ({
-      role: msg.role,
-      content: msg.content,
-    }));
+    const history: MessageHistory[] = selectHistoryWindow(
+      recentMessages.reverse().map((msg) => ({ role: msg.role, content: msg.content })),
+      { maxMessages, maxChars: this.appConfig.chatHistoryMaxChars },
+    );
 
     /* Step 5: Delegate streaming generation to LLM Provider (sub-span: chat.llm_generation) */
     let accumulatedContent = '';

@@ -16,7 +16,12 @@ import { OBJECT_STORAGE_SERVICE } from './storage/interfaces/object-storage.inte
 import { S3StorageAdapter } from './storage/adapters/s3-storage.adapter';
 
 import { S3Client } from '@aws-sdk/client-s3';
-import { OutboxRepository, EmbeddingOutboxRepository, IngestionJobsRepository } from './database/repositories';
+import {
+  OutboxRepository,
+  EmbeddingOutboxRepository,
+  IngestionJobsRepository,
+  DocumentsRepository,
+} from './database/repositories';
 import { MESSAGE_PUBLISHER } from './messaging/interfaces/message-publisher.interface';
 import { SqsMessagePublisher } from './messaging/publishers/sqs-message.publisher';
 import { IngestionOutboxPollerService } from './messaging/services/ingestion-outbox-poller.service';
@@ -44,6 +49,7 @@ import { AppConfigService } from '../config/app-config.service';
     OutboxRepository,
     EmbeddingOutboxRepository,
     IngestionJobsRepository,
+    DocumentsRepository,
     StoragePathBuilder,
     SqsMessagePublisher,
     IngestionOutboxPollerService,

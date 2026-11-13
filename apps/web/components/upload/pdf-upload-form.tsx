@@ -5,8 +5,8 @@ import { FileDropzone } from "@repo/ui/components/file-dropzone";
 import { Button } from "@repo/ui/components/button";
 import { Progress } from "@repo/ui/components/progress";
 import { Alert, AlertDescription, AlertTitle } from "@repo/ui/components/alert";
-import { CheckCircle2Icon, AlertCircleIcon, Loader2Icon, ArrowUpIcon } from "lucide-react";
-import { getApiErrorMessage } from "@repo/api";
+import { CheckCircle2Icon, AlertCircleIcon, Loader2Icon, ArrowUpIcon, FilePlus2Icon, InfoIcon } from "lucide-react";
+import { getApiErrorMessage, type DocumentFilenameMatch } from "@repo/api";
 import { api } from "../../lib/api-client";
 
 export interface PdfUploadFormProps {
@@ -17,10 +17,13 @@ export function PdfUploadForm({ onSuccess }: PdfUploadFormProps) {
   const [file, setFile] = React.useState<File | null>(null);
   const [progress, setProgress] = React.useState<number>(0);
   const [status, setStatus] = React.useState<
-    "idle" | "uploading" | "success" | "error"
+    "idle" | "checking" | "confirm" | "uploading" | "success" | "error"
   >("idle");
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [documentId, setDocumentId] = React.useState<string | null>(null);
+  /* Documents whose current file has the same name: the user decides whether this replaces one */
+  const [filenameMatches, setFilenameMatches] = React.useState<DocumentFilenameMatch[]>([]);
+  const [successText, setSuccessText] = React.useState<string>("");
 
   const handleFileSelect = (selectedFile: File) => {
     setFile(selectedFile);
@@ -34,27 +37,60 @@ export function PdfUploadForm({ onSuccess }: PdfUploadFormProps) {
   };
 
   const handleUpload = async () => {
-    if (!file || status === "uploading") return;
+    if (!file || status === "uploading" || status === "checking") return;
+
+    setStatus("checking");
+    setErrorMessage(null);
+
+    let matches: DocumentFilenameMatch[] = [];
+    try {
+      matches = await api.documents.findFilenameMatches(file.name);
+    } catch (err: unknown) {
+      /* The hint is optional: if the lookup fails, upload as a separate document */
+      console.warn("Filename lookup failed:", err);
+    }
+
+    if (matches.length > 0) {
+      setFilenameMatches(matches);
+      setStatus("confirm");
+      return;
+    }
+    await performUpload();
+  };
+
+  /* Without a target document the file becomes a new document */
+  const performUpload = async (targetDocumentId?: string) => {
+    if (!file) return;
 
     setStatus("uploading");
     setProgress(10);
     setErrorMessage(null);
+    setFilenameMatches([]);
+
+    const onUploadProgress = (progressEvent: { loaded: number; total?: number }) => {
+      if (progressEvent.total) {
+        const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        setProgress(Math.max(10, percent));
+      } else {
+        setProgress((prev) => Math.min(prev + 15, 90));
+      }
+    };
 
     try {
-      const res = await api.documents.uploadDocument(file, {
-        onUploadProgress: (progressEvent: { loaded: number; total?: number }) => {
-          if (progressEvent.total) {
-            const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-            setProgress(Math.max(10, percent));
-          } else {
-            setProgress((prev) => Math.min(prev + 15, 90));
-          }
-        },
-      });
+      const res = targetDocumentId
+        ? await api.documents.uploadDocumentVersion(targetDocumentId, file, { onUploadProgress })
+        : await api.documents.uploadDocument(file, { onUploadProgress });
 
       setProgress(100);
       setStatus("success");
       setDocumentId(res.data.documentId);
+      setSuccessText(
+        res.data.duplicate
+          ? "This exact file was already uploaded, so there is nothing new to index."
+          : targetDocumentId
+          ? `Saved as version ${res.data.versionNumber}. The previous version keeps answering until this one is indexed. Track its progress below.`
+          : "The document is queued for text extraction and embedding. Track its progress below."
+      );
       onSuccess?.();
     } catch (err: unknown) {
       console.error("Upload failed:", err);
@@ -72,6 +108,8 @@ export function PdfUploadForm({ onSuccess }: PdfUploadFormProps) {
     setProgress(0);
     setErrorMessage(null);
     setDocumentId(null);
+    setFilenameMatches([]);
+    setSuccessText("");
   };
 
   return (
@@ -80,7 +118,7 @@ export function PdfUploadForm({ onSuccess }: PdfUploadFormProps) {
         selectedFile={file}
         onFileSelect={handleFileSelect}
         onFileRemove={resetForm}
-        disabled={status === "uploading"}
+        disabled={status === "uploading" || status === "checking"}
         errorMessage={status === "error" ? null : errorMessage}
         onValidationError={handleValidationError}
       />
@@ -103,7 +141,7 @@ export function PdfUploadForm({ onSuccess }: PdfUploadFormProps) {
           <CheckCircle2Icon />
           <AlertTitle>Upload complete</AlertTitle>
           <AlertDescription>
-            <p>The document is queued for text extraction and embedding. Track its progress below.</p>
+            <p>{successText}</p>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <span className="font-mono text-[11px] text-muted-foreground">ID {documentId}</span>
               <Button variant="link" size="xs" className="h-auto px-0" onClick={resetForm}>
@@ -122,15 +160,49 @@ export function PdfUploadForm({ onSuccess }: PdfUploadFormProps) {
         </Alert>
       )}
 
-      {file && (status === "idle" || status === "error") && (
+      {status === "confirm" && (
+        <Alert variant="warning" data-testid="version-prompt">
+          <InfoIcon />
+          <AlertTitle>A document with this file name already exists</AlertTitle>
+          <AlertDescription>
+            <p>
+              Is <span className="font-medium text-foreground">{file?.name}</span> a new version? A new version
+              replaces the old one in answers once it is indexed. Otherwise both stay searchable.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {filenameMatches.map((match) => (
+                <Button
+                  key={match.documentId}
+                  size="sm"
+                  onClick={() => performUpload(match.documentId)}
+                  data-testid="upload-as-version-button"
+                >
+                  <FilePlus2Icon data-icon="inline-start" />
+                  New version of &ldquo;{match.title}&rdquo; (v{match.versionNumber + 1})
+                </Button>
+              ))}
+              <Button size="sm" variant="outline" onClick={() => performUpload()} data-testid="upload-as-new-button">
+                Keep as a separate document
+              </Button>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {file && (status === "idle" || status === "error" || status === "checking") && (
         <div className="flex justify-end">
           <Button
             onClick={handleUpload}
             size="lg"
             className="w-full px-4 sm:w-auto"
             data-testid="start-upload-button"
+            disabled={status === "checking"}
           >
-            <ArrowUpIcon data-icon="inline-start" />
+            {status === "checking" ? (
+              <Loader2Icon data-icon="inline-start" className="animate-spin" />
+            ) : (
+              <ArrowUpIcon data-icon="inline-start" />
+            )}
             {status === "error" ? "Retry upload" : "Upload document"}
           </Button>
         </div>

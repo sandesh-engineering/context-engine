@@ -20,9 +20,10 @@ import {
   type IEmbeddingProvider,
 } from '../embeddings/interfaces/embedding-provider.interface';
 import { OutboxMessagePayload } from '../messaging/interfaces/message-publisher.interface';
-import { IngestionJobStage, IngestionJobStatus } from '../common/enums';
+import { IngestionJobStatus } from '../common/enums';
 import { AppTracer, SemanticAttributes } from '../../common/telemetry';
 import { StructuredLogger, LogEvents } from '../../common/logger';
+import { ErrorClassifier } from '../resilience/error-classifier';
 
 export interface SqsEmbeddingPollerOptions {
   sqsClient?: SQSClient;
@@ -338,9 +339,23 @@ export class SqsEmbeddingPollerService implements OnModuleInit, OnModuleDestroy 
             jobId,
             messageId: sqsMessage.MessageId,
           });
-          /* Show the failure on the job. The message stays in the queue: a successful redelivery
-             marks the job COMPLETED again, and SQS moves it to the DLQ after maxReceiveCount. */
+          /* Show the failure on the job */
           await this.markJobFailedSafely(versionId, jobId, error);
+
+          /* Input the provider will never accept (e.g. an oversized payload): retrying cannot help */
+          if (ErrorClassifier.isUnrecoverable(error)) {
+            this.logger.warnEvent(LogEvents.QUEUE_MESSAGE_DISCARDED, {
+              versionId,
+              jobId,
+              messageId: sqsMessage.MessageId,
+              category: ErrorClassifier.classify(error),
+            });
+            await this.deleteSqsMessage(sqsMessage.ReceiptHandle!);
+            return;
+          }
+
+          /* The message stays in the queue: a successful redelivery marks the job COMPLETED again,
+             and SQS moves it to the DLQ after maxReceiveCount. */
           throw error;
         }
       },
@@ -372,13 +387,18 @@ export class SqsEmbeddingPollerService implements OnModuleInit, OnModuleDestroy 
       embeddedChunks: stats.embedded,
     });
 
-    if (effectiveJobId && stats.total > 0 && stats.embedded === stats.total) {
-      await this.jobsRepository.updateJobStage(effectiveJobId, IngestionJobStage.INDEXING);
-      await this.jobsRepository.markJobCompleted(effectiveJobId);
+    /* Zero chunks here means the document was deleted meanwhile: chunking never hands an empty
+       version to this stage. Completing still settles the job (it finds nothing to promote). */
+    if (effectiveJobId && stats.embedded === stats.total) {
+      const promotion = await this.jobsRepository.completeJobAndPromoteVersion(
+        effectiveJobId,
+        versionId,
+      );
       this.logger.logEvent(LogEvents.INGESTION_INTAKE_COMPLETED, {
         jobId: effectiveJobId,
         versionId,
         status: IngestionJobStatus.COMPLETED,
+        promotion,
       });
     }
   }

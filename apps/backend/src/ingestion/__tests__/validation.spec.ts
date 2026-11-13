@@ -25,6 +25,8 @@ describe('Validation Pipeline Tests', () => {
       mockPersistence,
       /* IngestionJobsRepository: no earlier upload with the same bytes */
       { findReusableJobByDigest: jest.fn().mockResolvedValue(null) } as any,
+      /* DocumentsRepository: only used by new-version uploads and deletes */
+      { exists: jest.fn().mockResolvedValue(true) } as any,
       new StoragePathBuilder(),
       mockConfig,
     );

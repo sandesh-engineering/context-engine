@@ -21,6 +21,7 @@ export const LogEvents = {
   QUEUE_MESSAGE_ACKNOWLEDGED: 'queue.message.acknowledged',
   QUEUE_MESSAGE_FAILED: 'queue.message.failed',
   QUEUE_DUPLICATE_SKIPPED: 'queue.duplicate.skipped',
+  QUEUE_MESSAGE_DISCARDED: 'queue.message.discarded',
 
   // Ingestion Worker Stages
   INGESTION_JOB_STARTED: 'ingestion.job.started',

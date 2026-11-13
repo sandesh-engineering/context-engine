@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   Get,
+  Delete,
   Query,
   Req,
   Res,
@@ -71,6 +72,40 @@ export class IngestionController {
   ) {
     /* The service clamps the range */
     return this.ingestionService.getRecentJobs(limit);
+  }
+
+  /**
+   * Lists documents whose current version has the given file name.
+   *
+   * @remarks
+   * The upload form calls this before uploading, to ask whether the file is a new version of an
+   * existing document. A shared name is only a hint; nothing is replaced without the user's choice.
+   */
+  @Get('filename-matches')
+  @ApiOperation({
+    summary: 'Find documents with the same file name',
+    description: 'Returns documents whose current version was uploaded under this file name',
+  })
+  @ApiQuery({ name: 'filename', required: true, type: String })
+  async findFilenameMatches(@Query('filename') filename: string) {
+    return this.ingestionService.findPossibleVersionTargets(filename);
+  }
+
+  /**
+   * Deletes a document with all its versions; it stops appearing in answers immediately.
+   */
+  @Delete(':documentId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Delete a document',
+    description: 'Removes the document, its versions, chunks and stored files',
+  })
+  @ApiResponse({ status: HttpStatus.NO_CONTENT, description: 'Document deleted' })
+  @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Document not found' })
+  async deleteDocument(
+    @Param('documentId', new ParseUUIDPipe()) documentId: string,
+  ): Promise<void> {
+    await this.ingestionService.deleteDocument(documentId);
   }
 
   /**
@@ -174,6 +209,55 @@ export class IngestionController {
     @Res() res: Response,
     @Headers('x-trace-id') traceIdHeader?: string,
   ): Promise<void> {
+    this.handleMultipartUpload(req, res, traceIdHeader);
+  }
+
+  /**
+   * Uploads a new version of an existing document.
+   *
+   * @remarks
+   * - The current version keeps answering until the new one is fully indexed, then it takes over
+   *   and the old version's chunks are removed. A failed new version leaves the old one in place.
+   * - Uploading bytes identical to an existing version of this document returns that version.
+   */
+  @Post(':documentId/versions')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiOperation({
+    summary: 'Upload a new version of a document',
+    description: 'Streams a PDF as the next version of an existing document and enqueues its ingestion',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file'],
+      properties: {
+        file: { type: 'string', format: 'binary', description: 'PDF document file binary' },
+      },
+    },
+  })
+  @ApiResponse({ status: HttpStatus.ACCEPTED, description: 'New version stored and ingestion job queued' })
+  @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Document not found' })
+  async uploadDocumentVersion(
+    @Param('documentId', new ParseUUIDPipe()) documentId: string,
+    @Req() req: Request,
+    @Res() res: Response,
+    @Headers('x-trace-id') traceIdHeader?: string,
+  ): Promise<void> {
+    this.handleMultipartUpload(req, res, traceIdHeader, documentId);
+  }
+
+  /**
+   * Streams a single-file multipart request into the ingestion service and writes the response.
+   *
+   * @param {string} [documentId] - Upload as a new version of this document instead of a new document
+   */
+  private handleMultipartUpload(
+    req: Request,
+    res: Response,
+    traceIdHeader?: string,
+    documentId?: string,
+  ): void {
     const contentType = req.headers['content-type'];
     if (!contentType || !contentType.includes('multipart/form-data')) {
       throw new BadRequestException('Request Content-Type must be multipart/form-data');
@@ -242,6 +326,7 @@ export class IngestionController {
           originalFilename: filename,
           title: effectiveTitle,
           traceId,
+          documentId,
         })
         .then(
           (data) => respond(HttpStatus.ACCEPTED, { data }),

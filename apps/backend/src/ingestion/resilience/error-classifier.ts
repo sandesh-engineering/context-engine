@@ -105,4 +105,17 @@ export class ErrorClassifier {
     const category = this.classify(error);
     return category === 'TRANSIENT';
   }
+
+  /**
+   * True when the failure comes from the document itself (a broken or textless PDF, too many
+   * pages, an oversized payload), so a queue redelivery fails the same way every time.
+   *
+   * @remarks
+   * Environment failures (bad credentials, missing bucket, outages, unknown errors) stay
+   * redeliverable: they can recover, and once in the DLQ they can be redriven after the fix.
+   */
+  static isUnrecoverable(error: unknown): boolean {
+    const category = this.classify(error);
+    return category === 'INTEGRITY' || category === 'RESOURCE_LIMIT';
+  }
 }

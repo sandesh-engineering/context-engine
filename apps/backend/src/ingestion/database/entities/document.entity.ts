@@ -28,6 +28,10 @@ export class DocumentEntity {
   })
   sourceType!: DocumentSourceType;
 
+  /* Version that answers questions. A new version takes over only once it is fully indexed. */
+  @Column({ name: 'current_version_id', type: 'uuid', nullable: true })
+  currentVersionId?: string | null;
+
   /* Timestamp when the logical document record was initially created */
   @CreateDateColumn({ name: 'created_at', type: 'timestamp' })
   createdAt!: Date;

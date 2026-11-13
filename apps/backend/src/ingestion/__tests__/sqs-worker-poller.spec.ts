@@ -179,6 +179,43 @@ describe('SqsIngestionPollerService Unit Tests', () => {
     expect(mockSqsClient.send).not.toHaveBeenCalledWith(expect.any(DeleteMessageCommand));
   });
 
+  it('should mark job failed and delete the message when the document itself is broken', async () => {
+    const message = {
+      Body: JSON.stringify({
+        eventId: 'evt-broken',
+        payload: { jobId: 'job-broken' },
+      }),
+      ReceiptHandle: 'rh-broken',
+    };
+
+    mockJobsRepository.claimJobForProcessing.mockResolvedValue({
+      claimed: true,
+      job: {
+        id: 'job-broken',
+        versionId: 'ver-1',
+        status: IngestionJobStatus.PROCESSING,
+        stage: IngestionJobStage.PARSING,
+        attemptCount: 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        version: {} as any,
+      },
+    });
+    mockSqsClient.send.mockResolvedValue({});
+
+    /* Same shape PdfParserAdapter throws for a malformed PDF */
+    const parseErr = Object.assign(new Error('Failed to parse PDF binary file structure: bad XRef'), {
+      code: 'INTEGRITY',
+    });
+    jest.spyOn(pollerService as any, 'executeJobPipeline').mockRejectedValue(parseErr);
+
+    await expect(pollerService.processSqsMessage(message)).resolves.toBeUndefined();
+
+    expect(mockJobsRepository.markJobFailed).toHaveBeenCalledWith('job-broken', parseErr.message);
+    /* Deleted instead of redelivered until it reaches the DLQ */
+    expect(mockSqsClient.send).toHaveBeenCalledWith(expect.any(DeleteMessageCommand));
+  });
+
   it('should handle unparseable JSON payload by deleting message from queue', async () => {
     const message = {
       Body: 'INVALID_JSON',

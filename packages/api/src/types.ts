@@ -18,6 +18,18 @@ export interface IngestionJob {
   byteSize?: number;
   /** Reason of the last failed attempt (FAILED jobs only). */
   errorMessage?: string;
+  documentId?: string;
+  versionId?: string;
+  versionNumber?: number;
+  /** False once a newer version of the document has taken over. */
+  isCurrent?: boolean;
+}
+
+/** A document whose current version has the same file name as an upload about to start. */
+export interface DocumentFilenameMatch {
+  documentId: string;
+  title: string;
+  versionNumber: number;
 }
 
 export interface DocumentUploadResponse {
@@ -25,6 +37,7 @@ export interface DocumentUploadResponse {
   data: {
     documentId: string;
     versionId: string;
+    versionNumber: number;
     jobId: string;
     status: IngestionStatus;
     stage: string;

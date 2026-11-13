@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
 import { IngestionJobEntity } from '../entities/ingestion-job.entity';
 import { DocumentVersionEntity } from '../entities/document-version.entity';
+import { DocumentEntity } from '../entities/document.entity';
 import { IngestionJobStage, IngestionJobStatus } from '../../common/enums';
 
 /**
@@ -13,6 +14,9 @@ const CLAIMABLE_STAGES = [
   IngestionJobStage.PARSING,
   IngestionJobStage.CHUNKING,
 ];
+
+/* Outcome of completing a job: its version took over the document, or a newer version already had */
+export type VersionPromotionResult = 'promoted' | 'superseded' | 'missing';
 
 export interface ClaimJobResult {
   /* Indicates whether atomic stage transition succeeded */
@@ -232,17 +236,97 @@ export class IngestionJobsRepository {
    * Used to make re-uploading identical bytes return the existing document instead of indexing a duplicate.
    *
    * @param {string} sha256Digest - Hex SHA-256 of the uploaded bytes
+   * @param {string} [documentId] - Only match versions of this document (new-version uploads)
    * @returns {Promise<IngestionJobEntity | null>} The reusable job, or null when none exists
    */
-  async findReusableJobByDigest(sha256Digest: string): Promise<IngestionJobEntity | null> {
-    return this.repository
+  async findReusableJobByDigest(
+    sha256Digest: string,
+    documentId?: string,
+  ): Promise<IngestionJobEntity | null> {
+    const query = this.repository
       .createQueryBuilder('job')
       .innerJoinAndSelect('job.version', 'version')
       .innerJoinAndSelect('version.document', 'document')
       .where('version.sha256Digest = :sha256Digest', { sha256Digest })
       .andWhere('job.status != :failed', { failed: IngestionJobStatus.FAILED })
-      .orderBy('job.createdAt', 'DESC')
-      .getOne();
+      /* Only the current version or a newer one still indexing: re-uploading a superseded
+         version's bytes is a rollback and must create a new version */
+      .andWhere(
+        `version.versionNumber >= (SELECT cv."version_number" FROM "document_versions" cv WHERE cv."id" = document.currentVersionId)`,
+      );
+    if (documentId) {
+      query.andWhere('version.documentId = :documentId', { documentId });
+    }
+    return query.orderBy('job.createdAt', 'DESC').getOne();
+  }
+
+  /**
+   * Completes a fully embedded job and makes its version the one that answers questions.
+   *
+   * @remarks
+   * Runs in one transaction with the document row locked:
+   * - If the version is newer than the current one, it becomes current. Older versions keep their
+   *   rows, stored files and chunks; retrieval ignores them because it only matches the current
+   *   version, and citations in earlier chats still open.
+   * - If a newer version is already current (an older upload finished last), the pointer stays
+   *   where it is and the job still completes.
+   * - An auto-generated title (the previous file name) follows the new file name.
+   *
+   * @param {string} jobId - Ingestion job to complete
+   * @param {string} versionId - Version the job indexed
+   * @returns {Promise<VersionPromotionResult>} What happened to the version
+   */
+  async completeJobAndPromoteVersion(
+    jobId: string,
+    versionId: string,
+  ): Promise<VersionPromotionResult> {
+    return this.dataSource.transaction(async (manager) => {
+      const version = await manager.findOne(DocumentVersionEntity, { where: { id: versionId } });
+      if (!version) {
+        /* The document was deleted while this version was being indexed */
+        return 'missing';
+      }
+
+      const document = await manager.findOne(DocumentEntity, {
+        where: { id: version.documentId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!document) {
+        return 'missing';
+      }
+
+      const current = document.currentVersionId
+        ? await manager.findOne(DocumentVersionEntity, { where: { id: document.currentVersionId } })
+        : null;
+
+      const isNewer = !current || current.id === version.id || version.versionNumber > current.versionNumber;
+      let result: VersionPromotionResult;
+
+      if (isNewer) {
+        const titleFollowsFile = current && current.id !== version.id && document.title === current.originalFilename;
+        await manager.update(DocumentEntity, document.id, {
+          currentVersionId: version.id,
+          ...(titleFollowsFile ? { title: version.originalFilename } : {}),
+        });
+        result = 'promoted';
+      } else {
+        result = 'superseded';
+      }
+
+      await manager
+        .createQueryBuilder()
+        .update(IngestionJobEntity)
+        .set({
+          status: IngestionJobStatus.COMPLETED,
+          stage: IngestionJobStage.INDEXING,
+          errorMessage: () => 'NULL',
+          updatedAt: () => 'CURRENT_TIMESTAMP',
+        })
+        .where('id = :jobId', { jobId })
+        .execute();
+
+      return result;
+    });
   }
 
   /**
