@@ -91,12 +91,12 @@ The question is embedded and matched against the chunks. If nothing is relevant,
 
 ### Goals
 
-- Reliable ingestion: no lost or duplicated jobs, resumable stages, and broken files that fail fast and visibly.
-- Grounded answers with citations that open the source page, and an explicit "I don't know" when the docs have no evidence.
-- Self-hosted by default: documents and questions stay on the network unless a hosted provider is switched on.
-- Swappable models (embeddings, LLM, reranker) behind interfaces.
-- Observable: one trace from upload to answer, plus metrics and structured logs.
-- Simple to run: one server, Docker Compose, and managed AWS services for state.
+- **Reliable ingestion:** no lost or duplicated jobs, resumable stages, and broken files that fail fast and visibly.
+- **Grounded answers:** citations that open the source page, and an explicit "I don't know" when the docs have no evidence.
+- **Self-hosted by default:** documents and questions stay on the network unless a hosted provider is switched on.
+- **Swappable models:** embeddings, LLM and reranker sit behind interfaces.
+- **Observable:** one trace from upload to answer, plus metrics and structured logs.
+- **Simple to run:** one server, Docker Compose, and managed AWS services for state.
 
 ### Non-Goals (Out of Scope for V1)
 
