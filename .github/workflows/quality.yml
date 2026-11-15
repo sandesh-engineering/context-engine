@@ -14,6 +14,12 @@ on:
       apps:
         description: Space-separated image names to deploy, e.g. "backend worker".
         value: ${{ jobs.quality.outputs.apps }}
+      backend_changed:
+        description: "'true' when the backend package (backend + worker images) is affected."
+        value: ${{ jobs.quality.outputs.backend_changed }}
+      web_changed:
+        description: "'true' when the web package is affected."
+        value: ${{ jobs.quality.outputs.web_changed }}
 
 jobs:
   quality:
@@ -26,6 +32,8 @@ jobs:
     outputs:
       images: ${{ steps.affected.outputs.images }}
       apps: ${{ steps.affected.outputs.apps }}
+      backend_changed: ${{ steps.affected.outputs.backend_changed }}
+      web_changed: ${{ steps.affected.outputs.web_changed }}
     env:
       TURBO_SCM_BASE: ${{ inputs.since }}
       # --affected only when a base is given; otherwise run everything.
@@ -86,3 +94,5 @@ jobs:
             'map(select(.package as $p | any($changed[]; . == $p)))' <<< "$all")
           echo "images=$images" >> "$GITHUB_OUTPUT"
           echo "apps=$(jq -r 'map(.name) | join(" ")' <<< "$images")" >> "$GITHUB_OUTPUT"
+          echo "backend_changed=$(jq 'any(.[]; .package == "backend")' <<< "$images")" >> "$GITHUB_OUTPUT"
+          echo "web_changed=$(jq 'any(.[]; .package == "web")' <<< "$images")" >> "$GITHUB_OUTPUT"
