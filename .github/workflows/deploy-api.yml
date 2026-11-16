@@ -77,9 +77,16 @@ jobs:
             echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
             trap 'docker logout' EXIT
 
-            # Download the new images, then restart only backend + worker.
-            # --no-deps: leave web alone. --wait: fail if a container doesn't become healthy within 3 minutes.
+            # Download the new images.
             docker compose -f docker-compose.prod.yaml pull backend worker
+
+            # Apply new database migrations with the NEW image, in a one-off container (--rm deletes it after).
+            # Runs before the switch: if a migration fails, the deploy stops and the old containers keep serving.
+            docker compose -f docker-compose.prod.yaml run --rm --no-deps backend \
+              node apps/backend/node_modules/typeorm/cli.js migration:run -d apps/backend/dist/database/data-source.js
+
+            # Restart only backend + worker on the new images.
+            # --no-deps: leave web alone. --wait: fail if a container doesn't become healthy within 3 minutes.
             docker compose -f docker-compose.prod.yaml up -d --no-deps --wait --wait-timeout 180 backend worker
 
             # Delete images no container uses any more (old versions).

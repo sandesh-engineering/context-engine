@@ -1,0 +1,5 @@
+# Confirmed gitleaks false positives. One fingerprint per line, exactly as gitleaks prints it.
+# Every entry needs a comment saying why it is not a real secret.
+
+# NestJS starter README badge link with the template's placeholder token "abc123def456".
+6e30085703fae2afb7ff629fa377b878b18bb474:apps/backend/README.md:generic-api-key:5

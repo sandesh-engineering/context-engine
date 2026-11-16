@@ -1,0 +1,60 @@
+name: Migration Check
+
+# Runs the backend's existing migrations on a throwaway, empty Postgres database to prove they
+# work before the API is deployed. Nothing is generated or written to the repo.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  migrations:
+    name: Run Migrations (ephemeral Postgres)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    # GitHub starts this database, waits for the health check to pass, and deletes it when the job ends.
+    # pgvector image: the first migration runs CREATE EXTENSION "vector".
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: knowledge_engine
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d knowledge_engine"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    # Read by apps/backend/src/database/data-source.ts. Not secrets: the database only lives for this job.
+    env:
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: knowledge_engine
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm version comes from "packageManager" in package.json.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # Only the backend and the workspace packages it depends on.
+      # --ignore-scripts skips the root husky (git hooks) setup; dependency builds are already off in pnpm-workspace.yaml.
+      - name: Install backend dependencies
+        run: pnpm install --frozen-lockfile --filter backend... --ignore-scripts
+
+      # Fails the job (and blocks the API deploy) if any migration throws.
+      - name: Run all migrations
+        run: pnpm --filter backend migration:run

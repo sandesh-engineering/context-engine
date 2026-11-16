@@ -30,9 +30,15 @@ jobs:
     with:
       since: ${{ inputs.since }}
 
+  # Secret scan, in parallel with quality. Skipped on rollback (nothing new is built).
+  security:
+    if: inputs.image_tag == ''
+    uses: ./.github/workflows/security.yml
+
+  # Starts only when both quality and security passed.
   build-and-push:
     uses: ./.github/workflows/build-image.yml
-    needs: quality
+    needs: [quality, security]
     if: needs.quality.outputs.images != '[]' # nothing changed -> skip build (and deploy)
     with:
       images: ${{ needs.quality.outputs.images }}
@@ -40,21 +46,29 @@ jobs:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
+  # Runs the backend migrations on a throwaway Postgres, in parallel with the build.
+  # Only when the backend changed (the migrations folder is part of the backend package).
+  migration-check:
+    needs: quality
+    if: needs.quality.outputs.backend_changed == 'true'
+    uses: ./.github/workflows/migration-check.yml
+
   # How to read the deploy conditions:
   #   !cancelled()           run even if a job in `needs` was skipped or failed (but not if the
   #                          whole run was cancelled). Without it, one skipped job would skip the deploy.
   #   refs/heads/main        production deploys only from main.
   #   then one of two cases:
   #     normal deploy        this app changed AND its images were built successfully
+  #                          (API only: AND its migrations ran successfully)
   #     rollback             image_tag was given AND this app is listed in `apps`
 
   # Deploys backend + worker.
   deploy-api:
-    needs: [quality, build-and-push]
+    needs: [quality, build-and-push, migration-check]
     if: >-
       !cancelled() && github.ref == 'refs/heads/main' &&
       (
-        (needs.quality.outputs.backend_changed == 'true' && needs.build-and-push.result == 'success') ||
+        (needs.quality.outputs.backend_changed == 'true' && needs.build-and-push.result == 'success' && needs.migration-check.result == 'success') ||
         (inputs.image_tag != '' && contains(inputs.apps, 'backend'))
       )
     uses: ./.github/workflows/deploy-api.yml

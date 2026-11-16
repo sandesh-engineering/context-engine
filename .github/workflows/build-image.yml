@@ -35,13 +35,16 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push image
+      # Build only (load: true puts it in the runner's local Docker). It is pushed after the Trivy scan,
+      # so a vulnerable image never reaches Docker Hub.
+      - name: Build image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ${{ matrix.dockerfile }}
           target: ${{ matrix.target }}
-          push: true
+          push: false
+          load: true
           platforms: linux/amd64
           # Only the web image uses these (baked into the browser bundle). Set them as repo/environment variables.
           build-args: |
@@ -52,3 +55,21 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/knowledge-engine-${{ matrix.name }}:latest
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+      # Fails on HIGH/CRITICAL vulnerabilities (OS packages and npm dependencies inside the image)
+      # that have a fixed version available, or on secrets baked into the image (e.g. a copied .env).
+      # Accepted findings go in .trivyignore with a comment.
+      - name: Scan image for vulnerabilities and secrets (Trivy)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/knowledge-engine-${{ matrix.name }}:${{ github.sha }}
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true # unfixable CVEs can't be acted on, so they don't block
+          exit-code: "1"
+
+      # Only reached when the scan passed. Pushes both tags (commit SHA and latest).
+      - name: Push image
+        env:
+          IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/knowledge-engine-${{ matrix.name }}
+        run: docker push --all-tags "$IMAGE"

@@ -34,10 +34,13 @@ COPY --from=pruner /app/out/json/ .
 # --ignore-scripts: the root "prepare" script calls husky, a devDependency that --prod doesn't install.
 RUN pnpm install --prod --frozen-lockfile --ignore-scripts
 COPY --from=builder /app/apps/web/next.config.js ./apps/web/
-COPY --from=builder /app/apps/web/.next ./apps/web/.next
+# Owned by "node" because Next.js writes its runtime cache into .next/cache.
+COPY --from=builder --chown=node:node /app/apps/web/.next ./apps/web/.next
 COPY --from=builder /app/apps/web/public ./apps/web/public
 
 WORKDIR /app/apps/web
+# Run as the unprivileged "node" user that ships with the official Node image, not root.
+USER node
 EXPOSE 3000
 HEALTHCHECK --interval=5s --timeout=3s --retries=3 --start-period=15s \
   CMD wget -q --spider http://localhost:3000/ || exit 1
