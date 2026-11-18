@@ -1,0 +1,47 @@
+name: Security Checks
+
+# Runs in parallel with quality.yml. Any finding fails the run before images are built.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  # Looks for committed secrets (API keys, tokens, passwords) in the whole git history:
+  # a secret deleted in a later commit is still leaked. False positives go in .gitleaksignore.
+  gitleaks:
+    name: Secret Scan (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GITLEAKS_VERSION: 8.25.1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history, not just the latest commit
+
+      # Official release binary (gitleaks-action needs a paid license for organization repos).
+      - name: Install gitleaks
+        run: curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" | tar -xz gitleaks
+
+      # --redact hides the secret values in the log; the file, line and commit are still shown.
+      - name: Scan git history for secrets
+        run: ./gitleaks git --redact --verbose
+
+  # Static code analysis (SAST) for OWASP Top 10 issues (injection, XSS, weak crypto, ...) in the
+  # backend, frontend and shared packages. Runs in parallel with gitleaks.
+  # Accept a finding with `// nosemgrep: <rule-id> -- <reason>`, or list whole paths in .semgrepignore.
+  semgrep:
+    name: SAST (Semgrep, OWASP Top 10)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    container: semgrep/semgrep:1.100.0 # official image, Semgrep preinstalled
+    steps:
+      - uses: actions/checkout@v4
+
+      # --severity ERROR: only run the high-severity rules (WARNING/INFO rules are skipped entirely).
+      # --error: fail on any finding. --metrics=off: send no usage data to Semgrep.
+      # Only git-tracked files are scanned, so node_modules, dist and .next are never included.
+      - name: Scan code for OWASP Top 10 issues
+        run: semgrep scan --config p/owasp-top-ten --severity ERROR --error --metrics=off apps/backend apps/web packages

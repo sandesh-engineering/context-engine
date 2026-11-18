@@ -29,6 +29,10 @@ COPY --from=pruner /app/out/json/ .
 # --ignore-scripts: the root "prepare" script calls husky, a devDependency that --prod doesn't install.
 RUN pnpm install --prod --frozen-lockfile --ignore-scripts
 COPY --from=builder /app/apps/backend/dist ./apps/backend/dist
+# Uploads are staged in ./tmp/documents (DOCUMENT_TEMP_DIR default), so the app user must own ./tmp.
+RUN mkdir -p tmp && chown node:node tmp
+# Run as the unprivileged "node" user that ships with the official Node image, not root.
+USER node
 
 FROM runtime AS worker
 CMD ["node", "apps/backend/dist/main-worker"]

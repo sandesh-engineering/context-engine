@@ -1,0 +1,34 @@
+# Dependabot checks weekly for newer versions and opens a pull request for each group.
+# It runs on GitHub's side for free; nothing deploys until you merge and run the pipeline.
+version: 2
+updates:
+  # Actions used in .github/workflows (checkout, setup-node, trivy-action, ...).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
+
+  # Base images in the Dockerfiles (node:24-alpine): picks up OS security fixes.
+  - package-ecosystem: docker
+    directories:
+      - /apps/backend
+      - /apps/web
+    schedule:
+      interval: weekly
+    groups:
+      base-images:
+        patterns: ["*"]
+
+  # npm packages of the pnpm workspace. Minor + patch updates come as one PR per week;
+  # major updates (possible breaking changes) get their own PRs.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
